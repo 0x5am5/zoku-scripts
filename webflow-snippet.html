@@ -1,24 +1,20 @@
 <!--
-  Zoku — Site Settings → Custom Code → Footer Code
-  Order mirrors the local template/ build (index.html is the full superset).
-  Third-party libs first, then the zoku-scripts modules.
-  Bump @v1.0.0 to the latest published tag on each release.
+  Zoku — Webflow custom code.
+  HEAD:   the tiny zoku-js flag (flash-free first paint for the hero intro).
+  FOOTER: external libraries (separate, cached) + the single zoku-core bundle.
+          zoku-core.js lazy-loads zoku-halftone.js on demand (only on pages
+          that contain a [data-halftone] element), so the 34KB WebGL shader
+          never ships to the pages that don't use it.
+  Webflow pins @vX.Y.Z tags for stability; bump the tag on release.
+  Note: Webflow limits applied scripts to 15 — this uses 5.
 -->
+
+<!-- Site Settings → Custom Code → Head Code -->
+<script>document.documentElement.classList.add("zoku-js");</script>
+
+<!-- Site Settings → Custom Code → Footer Code -->
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/ScrollTrigger.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/smooothy@0.0.35/dist/smooothy.min.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/@barba/core@2.10.3/dist/barba.umd.js" defer></script>
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.0.0/barba-init.js" defer></script>
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.0.0/hero-intro.js" defer></script>
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.0.0/portfolio.js" defer></script>
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.0.0/results.js" defer></script>
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.0.0/pillars.js" defer></script>
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.0.0/process-scroll.js" defer></script>
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.0.0/card-deck.js" defer></script>
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.0.0/testimonials-slider.js" defer></script>
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.0.0/halftone-shader.js" defer></script>
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.0.0/scroll-scrub.js" defer></script>
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.0.0/trifecta-line.js" defer></script>
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.0.0/pullquote-cranes.js" defer></script>
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.0.0/nav-menu.js" defer></script>
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.0.0/nav-theme.js" defer></script>
+<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.1.0/zoku-core.js" defer></script>

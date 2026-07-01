@@ -1,4 +1,4 @@
-/* zoku-halftone.js — generated bundle from: halftone-shader scroll-scrub trifecta-line. Do not edit directly; edit the source modules and rebuild. */
+/* zoku-halftone.js — generated bundle from: halftone-shader scroll-scrub trifecta-line. Do not edit directly; edit the source modules and run ./build.sh. */
 
 /* ==== halftone-shader.js ==== */
 /**
@@ -461,16 +461,28 @@ void main() {
             renderLoopKick();
         }
 
-        /** Kick off image loading (idempotent). */
+        /**
+         * Kick off image loading (idempotent).
+         *
+         * The wrapper's <img> is rendered by Webflow WITHOUT crossorigin, so it is
+         * fetched under the browser's default (no-CORS) mode. Drawing that image into
+         * a canvas or uploading it via texImage2D taints the canvas and throws
+         * "Tainted canvases may not be loaded". We therefore never use the DOM <img>
+         * as the texture source: we load a FRESH, CORS-enabled copy of the same URL
+         * (Webflow's CDN, cdn.prod.website-files.com, returns Access-Control-Allow-Origin)
+         * and hand that clean, un-tainted image to onImageReady instead.
+         */
         inst.loadSource = function () {
             if (inst.loaded || inst.loading || !img) return;
             inst.loading = true;
-            if (img.complete && img.naturalWidth) {
-                onImageReady(img);
-            } else {
-                img.addEventListener('load', () => onImageReady(img), { once: true });
-                img.addEventListener('error', () => { inst.loading = false; }, { once: true });
-            }
+            const src = img.currentSrc || img.src;
+            if (!src) { inst.loading = false; return; }
+            const tex = new Image();
+            tex.crossOrigin = 'anonymous';
+            tex.decoding = 'async';
+            tex.addEventListener('load', () => onImageReady(tex), { once: true });
+            tex.addEventListener('error', () => { inst.loading = false; }, { once: true });
+            tex.src = src;
         };
 
         /** Measure the wrapper box, size the backing store (capped DPR), derive cell density. */

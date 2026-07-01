@@ -18,3 +18,133 @@
 <script src="https://cdn.jsdelivr.net/npm/smooothy@0.0.35/dist/smooothy.min.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/@barba/core@2.10.3/dist/barba.umd.js" defer></script>
 <script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.1.0/zoku-core.js" defer></script>
+
+
+
+
+<!-- Archive: Head -->
+<style>
+@view-transition {
+	navigation: auto;
+}
+  .window:not(.blog-content__window), .utility__title:not(.utility__title-visible),.anim-bkg,#scroll-text, .social__list > *{
+  	visibility:hidden;
+  }
+</style>
+
+
+<!-- Archive Footer -->
+<script src="https://d2my2wpsc41l6t.cloudfront.net/zoku/patch.gz.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const mm = window.matchMedia("(min-width: 767px)");
+  const windows = gsap.utils.toArray(".window");
+  const draggables = [];
+
+  function rebuildDraggables() {
+    draggables.forEach(d => d.kill());
+    draggables.length = 0;
+    if (!mm.matches) return;
+
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    windows.forEach(win => {
+      const header = win.querySelector(".window__header");
+      if (!header) return;
+
+      const { left, top, right, bottom } = win.getBoundingClientRect();
+
+      const draggable = Draggable.create(win, {
+        trigger: header,
+        type: "x,y",
+        inertia: true,
+        throwResistance: 900,
+        minDuration: 0.35,
+        maxDuration: 1,
+        bounds: {
+          minX: -left,
+          minY: -top,
+          maxX: vw - right,
+          maxY: vh - bottom,
+        },
+      })[0];
+
+      draggable.applyBounds();
+      draggable.update(true);
+      draggables.push(draggable);
+    });
+  }
+
+  if (mm.matches) rebuildDraggables();
+  mm.addEventListener("change", rebuildDraggables);
+
+  let resizeT;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeT);
+    resizeT = setTimeout(rebuildDraggables, 150);
+  });
+
+  function getDistance(track, view) {
+    const trackW = track.scrollWidth;
+    const viewW = view.offsetWidth || window.innerWidth;
+    return Math.max(0, trackW - viewW);
+  }
+
+  function setTrackHeights() {
+    gsap.utils.toArray(".content__view-main").forEach(view => {
+      const track = view.querySelector(".content__track");
+      if (!track) return;
+      view.style.height = track.scrollWidth + "px";
+    });
+    ScrollTrigger.refresh();
+  }
+
+  window.addEventListener("load", setTrackHeights);
+
+  let resizeScrollT;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeScrollT);
+    resizeScrollT = setTimeout(setTrackHeights, 150);
+  });
+
+  gsap.utils.toArray(".content__view-main").forEach(view => {
+    const track = view.querySelector(".content__track");
+    if (!track) return;
+
+    const tl = gsap.timeline({
+      scrollTrigger: {
+        trigger: view,
+        start: "top top",
+        end: () => "+=" + getDistance(track, view),
+        scrub: 1,
+        pin: true,
+        anticipatePin: 1,
+        invalidateOnRefresh: true,
+      },
+    });
+
+    tl.fromTo(track, { x: 0 }, { x: () => -getDistance(track, view), ease: "none" });
+  });
+});
+
+ document.addEventListener('CABLES.jsLoaded', function (event) {
+            CABLES.patch = new CABLES.Patch({
+                patch: CABLES.exportedPatch,
+                "glCanvasId": "glcanvas",
+                "glCanvasResizeToWindow": true,
+                "canvas":{"alpha":true,"premultipliedAlpha":true}, // make canvas transparent
+                "onFinishedLoading": function() {
+            		ScrollTrigger.create({
+                    start: 0,
+                    end: "max",
+                    scrub: true,
+                    onUpdate: self => {
+                      CABLES.patch.setVariable('scrollPos', self.progress)
+                      console.log(self.progress);
+                    }
+                  })
+            }
+            });
+        });  
+</script>

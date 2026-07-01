@@ -1,4 +1,4 @@
-/* zoku-core.js — generated bundle from: barba-init nav-menu nav-theme hero-intro results pillars portfolio card-deck testimonials-slider process-scroll pullquote-cranes. Do not edit directly; edit the source modules and rebuild. */
+/* zoku-core.js — generated bundle from: barba-init nav-menu nav-theme hero-intro results pillars portfolio card-deck testimonials-slider process-scroll pullquote-cranes. Do not edit directly; edit the source modules and run ./build.sh. */
 
 /* ==== barba-init.js ==== */
 /**

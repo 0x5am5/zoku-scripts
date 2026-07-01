@@ -74,7 +74,7 @@
      * any other; because initAll() has already run for the current page by the time
      * the bundle arrives, we init the newly-registered modules once here, and every
      * subsequent swap goes through the normal initAll() path. */
-    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@main/zoku-halftone.js';
+    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.1.1/zoku-halftone.js';
     let halftoneLoaded = false;
     let halftoneLoading = false;
     const ensureHalftone = (scope) => {

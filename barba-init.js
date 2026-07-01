@@ -63,6 +63,42 @@
     };
     window.ZokuPage = ZokuPage;
 
+    /* ── Lazy halftone bundle ──────────────────────────────────────────────────
+     * The WebGL halftone system (halftone-shader + scroll-scrub + trifecta-line)
+     * is ~40KB and only ~5 of 11 pages use it, so it is split into its own bundle
+     * and fetched on demand — the first time a loaded/swapped-in page actually
+     * contains a [data-halftone] element. Its modules register with ZokuPage like
+     * any other; because initAll() has already run for the current page by the time
+     * the bundle arrives, we init the newly-registered modules once here, and every
+     * subsequent swap goes through the normal initAll() path. */
+    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@main/zoku-halftone.js';
+    let halftoneLoaded = false;
+    let halftoneLoading = false;
+    const ensureHalftone = (scope) => {
+        const root = scope || document;
+        if (halftoneLoaded || halftoneLoading) return;
+        if (!root.querySelector || !root.querySelector('[data-halftone]')) return;
+        halftoneLoading = true;
+        const before = mods.length;
+        const s = document.createElement('script');
+        s.src = HALFTONE_URL;
+        s.async = false;
+        s.onload = () => {
+            halftoneLoaded = true;
+            // Init only the modules the bundle just added, against the live <main>.
+            const liveMain = document.querySelector('[data-barba="container"]') || root;
+            for (let i = before; i < mods.length; i++) {
+                if (typeof mods[i].init !== 'function') continue;
+                try { mods[i].init(liveMain); } catch (e) { console.error('[zoku] halftone init failed', e); }
+            }
+            if (window.ScrollTrigger && typeof window.ScrollTrigger.refresh === 'function') {
+                window.ScrollTrigger.refresh();
+            }
+        };
+        s.onerror = () => { halftoneLoading = false; };
+        document.head.appendChild(s);
+    };
+
     /* ── Rising pixel-band overlay ─────────────────────────────────────────── */
     const PIXEL = { desktop: 60, mobile: 42 }; // grid cell px
     const BAND_FRACTION = 0.75;                 // band height as a fraction of the viewport
@@ -224,6 +260,7 @@
     /** Run every module against `scope`, then refresh the global chrome. */
     const initPage = (scope) => {
         ZokuPage.initAll(scope || document);
+        ensureHalftone(scope || document); // fetch the halftone bundle if this page needs it
         if (window.ZokuNavTheme && typeof window.ZokuNavTheme.refresh === 'function') {
             // Pass the incoming container so nav-theme binds to the *new* page's
             // sections, not the outgoing main that Barba hasn't removed yet.

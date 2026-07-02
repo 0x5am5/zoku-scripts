@@ -12,6 +12,108 @@
 <!-- Site Settings → Custom Code → Head Code -->
 <script>document.documentElement.classList.add("zoku-js");</script>
 
+<!--
+  Runtime-state CSS bucket — selectors Webflow's class system can't hold
+  ([open], ::before content toggles, html.zoku-js …, JS-injected overlays,
+  descendant/child combinators keyed on JS state). Kept in sync with the
+  Webflow Head freeform <style> block. Verified against the live DOM 2026-07-02.
+-->
+<style>
+/* Pillars card-deck (runtime .cc-deck / .cc-pinned added by pillars.js) */
+.zoku-home-pillars.cc-pinned .zoku-home-pillars_lede { position: static; }
+.zoku-home-pillars_cards.cc-deck { display: block; position: relative; height: 46rem; }
+.zoku-home-pillars_cards.cc-deck .zoku-home-pillars_card { position: absolute; inset: 0; margin: 0; }
+@media (max-width: 991px) { .zoku-home-pillars_cards.cc-deck { height: 36rem; } }
+@media (max-width: 767px) { .zoku-home-pillars_cards.cc-deck { height: 28rem; } }
+
+/* Load-animation pre-hide (gated on html.zoku-js — set by the inline head script) */
+.zoku-js .zoku-home-hero_headline [data-hero-line],
+.zoku-js .zoku-home-hero_headline [data-hero-cta] { opacity: 0; transform: translateY(28px); }
+.zoku-js .zoku-home-pillars_lede { opacity: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .zoku-js .zoku-home-hero_headline [data-hero-line],
+  .zoku-js .zoku-home-hero_headline [data-hero-cta] { opacity: 1; transform: none; }
+  .zoku-js .zoku-home-pillars_lede { opacity: 1; }
+}
+
+/* Menu drawer runtime state — Designer can't express [open]; must live here */
+html:not(.zoku-menu-ready) .zoku-menu,
+html:not(.zoku-menu-ready) .zoku-menu .zoku-menu_scrim,
+html:not(.zoku-menu-ready) .zoku-menu .zoku-menu_panel {
+  transition: none !important;
+}
+
+.zoku-menu[open] {
+  visibility: visible;
+  pointer-events: auto;
+  transition: visibility 0s linear 0s;
+}
+
+.zoku-menu[open] .zoku-menu_scrim {
+  opacity: 1;
+  transition: opacity 0.8s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.zoku-menu[open] .zoku-menu_panel {
+  transform: translateX(0);
+  transition: transform 0.8s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zoku-menu,
+  .zoku-menu[open],
+  .zoku-menu_scrim,
+  .zoku-menu[open] .zoku-menu_scrim,
+  .zoku-menu_panel,
+  .zoku-menu[open] .zoku-menu_panel {
+    transition: none;
+  }
+}
+
+/* Home portfolio accordion — Webflow imports the rows as <div>s (no native
+   <details> collapse + no [open]-driven pseudo toggles), so these runtime-state
+   rules must live here. portfolio.js toggles the [open] attribute. */
+.zoku-portfolio-item:not([open]) > .zoku-portfolio-item_body { display: none; }
+.zoku-portfolio-item:not([open]) .zoku-portfolio-item_indicator::before { content: "+"; }
+.zoku-portfolio-item[open] .zoku-portfolio-item_indicator::before { content: "\2212"; }
+
+/* Hide the raw halftone source image until the WebGL canvas paints,
+  so the still image / raw sprite sheet doesn't flash on load.
+  .no-halftone is added by the shader when WebGL2 is unavailable. */
+[data-halftone] > img { visibility: hidden; }
+[data-halftone].no-halftone > img { visibility: visible; }
+
+/* Page transition — Barba.js injects .zoku-band (with .zoku-band_px children)
+   into <body>; Designer can't express the JS-injected overlay, so its runtime
+   CSS lives here. Without it the band renders position:static/height:0 (invisible). */
+.zoku-band { position: fixed; inset: 0; z-index: 10000; display: none; pointer-events: none; }
+.zoku-band_px { background: #161616; will-change: opacity; }
+
+/* Adaptive nav — reacts to nav-theme.js toggling .cc-light over light surfaces.
+   Webflow can't hold this JS-state selector or the source's custom-property
+   cascade, so the light-mode flip is recreated here. */
+.zoku-nav.cc-light .zoku-nav_logo svg { fill: #161616; }
+
+.zoku-nav.cc-light .zoku-nav_menu {
+  color: #161616;
+  -webkit-text-fill-color: #161616;      /* .w-button renders text via this */
+  border-color: rgba(22, 22, 22, 0.25);
+  background-color: rgba(235, 235, 235, 0.45);
+}
+.zoku-nav.cc-light .zoku-nav_menu:hover {
+  border-color: rgba(22, 22, 22, 0.55);
+  background-color: rgba(235, 235, 235, 0.7);
+}
+
+/* The "shadow" — baked dark on .zoku-nav_scrim as background-image, so override
+   background-image (not the `background` shorthand). */
+.zoku-nav.cc-light .zoku-nav_scrim {
+  background-image: linear-gradient(to bottom,
+    rgba(235,235,235,.82) 0%, rgba(235,235,235,.48) 45%, rgba(235,235,235,0) 100%);
+}
+</style>
+
 <!-- Site Settings → Custom Code → Footer Code -->
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/ScrollTrigger.min.js"></script>

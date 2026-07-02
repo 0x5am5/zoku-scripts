@@ -195,29 +195,57 @@
         return new Promise((resolve) => {
             buildBand();
             overlay.style.display = 'grid';
-            if (prefersReduced) {
-                // Leave the old page fully clipped (invisible); Barba removes it.
+
+            // The band sweep drives `enter()`, which Barba awaits before firing
+            // `afterEnter` — and afterEnter is what removes the outgoing <main>,
+            // resets scroll, re-inits the page modules, refreshes ScrollTrigger,
+            // syncs the menu AND re-runs the adaptive nav-theme flip. That whole
+            // chain therefore MUST NOT be able to hang. It can: the animation is
+            // requestAnimationFrame-driven, and rAF is paused/heavily throttled
+            // whenever the tab is not the visible foreground (backgrounded tab,
+            // another window on top, OS app switch during the ~1.1s transition).
+            // If the sweep starts while hidden, the rAF loop never reaches t=1,
+            // the promise never resolves, and the swap gets stuck half-done — the
+            // nav keeps the previous page's light/dark state and the old <main>
+            // is left in the DOM. A watchdog forces completion so the transition
+            // always finishes; setTimeout (unlike rAF) still fires while hidden.
+            let settled = false;
+            let watchdog = null;
+            const finish = () => {
+                if (settled) return;
+                settled = true;
+                if (watchdog !== null) { clearTimeout(watchdog); watchdog = null; }
+                // Old page ends fully clipped — do NOT un-clip it (that would
+                // flash the outgoing page back over the new one). Barba removes it.
                 setProgress(1, oldEl, scrollY);
                 overlay.style.display = 'none';
                 resolve();
+            };
+
+            if (prefersReduced) {
+                finish();
                 return;
             }
+
             setProgress(0, oldEl, scrollY);
             const start = performance.now();
             const frame = (now) => {
+                if (settled) return;
                 let t = (now - start) / duration;
                 if (t > 1) t = 1;
                 setProgress(easeInOutCubic(t), oldEl, scrollY);
                 if (t < 1) {
                     requestAnimationFrame(frame);
                 } else {
-                    // Old page ends fully clipped — do NOT un-clip it (that would
-                    // flash the outgoing page back over the new one). Barba removes it.
-                    overlay.style.display = 'none';
-                    resolve();
+                    finish();
                 }
             };
             requestAnimationFrame(frame);
+            // Belt-and-braces: if rAF is throttled/paused the loop above may never
+            // reach t=1, so guarantee completion a beat after the intended sweep.
+            // On a normal visible tab the rAF loop finishes first and this is a
+            // no-op (finish() is idempotent).
+            watchdog = setTimeout(finish, duration + 600);
         });
     };
 

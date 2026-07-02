@@ -52,8 +52,17 @@
                 if (idx !== active) {
                     active = idx;
                     steps.forEach((step, i) => {
-                        step.classList.toggle('cc-active', i === idx);
-                        step.classList.toggle('cc-muted', i !== idx);
+                        const on = i === idx;
+                        step.classList.toggle('cc-active', on);
+                        step.classList.toggle('cc-muted', !on);
+                        // Reveal the active step's body / dropdown copy and hide the
+                        // rest. The body's own cc-muted class is what drives its
+                        // display (.zoku-process-step_body.cc-muted { display:none }),
+                        // and the static markup only marks the initially-active step's
+                        // body visible — so it must be toggled in lock-step here or
+                        // only the first step ever shows its description as you scroll.
+                        const body = step.querySelector('.zoku-process-step_body');
+                        if (body) body.classList.toggle('cc-muted', !on);
                     });
                 }
                 positionRail(idx);

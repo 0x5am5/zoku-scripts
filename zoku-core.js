@@ -316,6 +316,12 @@
                 name: 'pixel-band',
                 leave() {},
                 async enter(data) {
+                    // Re-assert manual restoration at the EARLIEST point of the
+                    // navigation. On back/forward the browser's automatic scroll
+                    // restoration fires during popstate — before afterEnter — so
+                    // asserting it here (not just in afterEnter) is what stops the
+                    // page landing at the previous entry's offset.
+                    forceManualScroll();
                     const current = data.current && data.current.container;
                     const scrollY = window.scrollY || window.pageYOffset || 0;
                     // The incoming page is already in normal flow (Barba inserted it).
@@ -352,6 +358,19 @@
             forceManualScroll(); // before the browser's async restore can fire
             window.scrollTo(0, 0);
             initPage(data.next.container);
+            // Belt-and-braces: even with scrollRestoration set to 'manual', the
+            // sync scrollTo(0, 0) above can be undone a beat later by (a) the
+            // browser's async scroll restoration, which some engines still apply
+            // on history traversal, or (b) the first post-swap reflow as the new
+            // page's above-the-fold assets/pins settle — either leaves the reader
+            // dropped to a lower point. Re-assert the top on the next frame, which
+            // lands after both yet still within ~16ms of the swap, so it never
+            // fights a reader who has started scrolling.
+            requestAnimationFrame(() => {
+                if ((window.scrollY || window.pageYOffset || 0) !== 0) {
+                    window.scrollTo(0, 0);
+                }
+            });
         });
 
         // First page load — Barba does not run a transition for it.

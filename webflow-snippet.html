@@ -78,6 +78,12 @@ html:not(.zoku-menu-ready) .zoku-menu .zoku-menu_panel {
 .zoku-portfolio-item:not([open]) .zoku-portfolio-item_indicator::before { content: "+"; }
 .zoku-portfolio-item[open] .zoku-portfolio-item_indicator::before { content: "\2212"; }
 
+/* List filter (filter.js) — the Portfolio "Product" and Resources "Category"
+   listings. filter.js toggles .cc-filtered-out on the collection items whose
+   category doesn't match the active [data-filter] button; this JS-state class
+   isn't something Webflow's Designer can express, so its collapse lives here. */
+.cc-filtered-out { display: none !important; }
+
 /* Hide the raw halftone source image until the WebGL canvas paints,
   so the still image / raw sprite sheet doesn't flash on load.
   .no-halftone is added by the shader when WebGL2 is unavailable. */
@@ -112,6 +118,45 @@ html:not(.zoku-menu-ready) .zoku-menu .zoku-menu_panel {
   background-image: linear-gradient(to bottom,
     rgba(235,235,235,.82) 0%, rgba(235,235,235,.48) 45%, rgba(235,235,235,0) 100%);
 }
+
+/* Testimonials Rail — Light variant cascade. The Webflow component's Light
+   variant emits a data attribute on the rail root
+   (data-wf--testimonials-rail--variant="light"), NOT a .cc-light combo — and
+   the cards (+ eyebrow / heading / edge fade) are styled via descendant
+   selectors Webflow's per-element class system can't hold, and a card instance
+   can't be given a light combo conditionally. So the light flip must cascade
+   from the variant attribute here. Mirrors the static
+   `.cc-light .zoku-testimonial-card` rules in styles.css. */
+[data-wf--testimonials-rail--variant="light"] .zoku-testimonial-card {
+  background-image:
+    linear-gradient(176deg, rgba(255,255,255,0.66) 6%, rgba(255,255,255,0.03) 99%),
+    linear-gradient(90deg, #ebebeb, #ebebeb);
+  border-color: rgba(22, 22, 22, 0.18);
+  color: #575757;
+}
+[data-wf--testimonials-rail--variant="light"] .zoku-testimonial-card_logo {
+  background: #161616;
+  border-color: #575757;
+}
+[data-wf--testimonials-rail--variant="light"] .zoku-testimonial-card_quote,
+[data-wf--testimonials-rail--variant="light"] .zoku-testimonial-card_role {
+  color: #575757;
+}
+[data-wf--testimonials-rail--variant="light"] .zoku-testimonial-card_name {
+  color: #7c00e9;
+}
+
+/* Rail chrome (also descendant / pseudo — can't be Designer classes) */
+[data-wf--testimonials-rail--variant="light"] .zoku-testimonials-rail_eyebrow { color: #575757; }
+[data-wf--testimonials-rail--variant="light"] .zoku-testimonials-rail_heading { color: #161616; }
+/* The visible edge fade is the _viewport::after pseudo (the _track also has one
+   underneath). Flip both. !important + background-image (not the `background`
+   shorthand): the base dark fade is a head-CSS pseudo rule that outweighs a
+   plain override — same pattern as the nav scrim above. */
+[data-wf--testimonials-rail--variant="light"] .zoku-testimonials-rail_viewport::after,
+[data-wf--testimonials-rail--variant="light"] .zoku-testimonials-rail_track::after {
+  background-image: linear-gradient(90deg, rgba(235,235,235,0) 0%, #ebebeb 100%) !important;
+}
 </style>
 
 <!-- Site Settings → Custom Code → Footer Code -->
@@ -121,4 +166,4 @@ html:not(.zoku-menu-ready) .zoku-menu .zoku-menu_panel {
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/ScrollTrigger.min.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/smooothy@0.0.35/dist/smooothy.min.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/@barba/core@2.10.3/dist/barba.umd.js" defer></script>
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.2.0/zoku-core.js" defer></script>
+<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.3.0/zoku-core.js" defer></script>

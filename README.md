@@ -33,7 +33,7 @@ bundles that actually ship — do **not** edit the bundles by hand.
 | `zoku-halftone.js` | **Generated bundle** — lazy-loaded by the core bundle only on `[data-halftone]` pages. Do not edit; run `./build.sh` |
 | `webflow-snippet.html` | The exact Head + Footer custom code pasted into Webflow Site Settings |
 | `build.sh` | Stamps the release pins and rebuilds the two bundles from the source modules |
-| `VERSION` | Single bump point for the shipped release tag (currently `1.3.0`) |
+| `VERSION` | Single bump point for the shipped release tag (currently `1.3.1`) |
 | `archive/` | Retired custom code kept for reference (`old-site-custom-code.html`) |
 
 ## Usage (jsDelivr)

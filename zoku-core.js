@@ -77,7 +77,7 @@
      *
      * The pinned tag below is stamped from the repo-root VERSION file by
      * build.sh — do NOT edit it by hand; bump VERSION and run ./build.sh. */
-    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.3.0/zoku-halftone.js';
+    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.3.1/zoku-halftone.js';
     let halftoneLoaded = false;
     let halftoneLoading = false;
     const ensureHalftone = (scope) => {
@@ -1225,12 +1225,16 @@
   //            need no wrapper change).
   //   Buttons: descendants carrying data-filter="<slug>". A value of "all"
   //            (or "*", or empty) is the reset button that shows everything.
-  //   Items:   the filterable cards carry data-filter-item="<slug> [<slug>…]"
-  //            — a space/comma-separated list of the category slugs they belong
-  //            to (multiple categories per item supported). In Webflow, bind
-  //            this custom attribute's value to the item's Category / Product
-  //            CMS field (its slug). An item with no data-filter-item is never
-  //            hidden (it opts out of filtering).
+  //   Items:   the filterable cards carry data-filter-item="<value>[, <value>…]"
+  //            — a COMMA- (or pipe-) separated list of the categories they
+  //            belong to (multiple categories per item supported). In Webflow,
+  //            bind this custom attribute's value to the item's Category /
+  //            Product CMS field. The value is matched whole and case-
+  //            insensitively, so either the field's name ("Zoku Ventures") or
+  //            its slug ("zoku-ventures") works — as long as the button uses the
+  //            same. Separate multiple categories with commas, never spaces,
+  //            because category names themselves contain spaces. An item with no
+  //            data-filter-item is never hidden (it opts out of filtering).
   //   Scope:   an item belongs to a menu when it lives inside the menu's scope.
   //            Scope = the element matched by the menu's data-filter-target
   //            selector, else the menu's closest [data-filter-scope] /
@@ -1239,10 +1243,10 @@
   //   Empty:   an optional [data-filter-empty] element inside the scope is
   //            shown only when a filter matches zero items.
   //
-  // The button slug is matched verbatim against the item slugs, so the two must
-  // agree — e.g. a "Zoku Ventures" button is data-filter="zoku-ventures" and
-  // its items are data-filter-item="zoku-ventures". The slug strings themselves
-  // carry no meaning to this code.
+  // The button value is matched (whole, case-insensitively) against the item
+  // values, so the two must agree — a data-filter="Zoku Ventures" button shows
+  // the items whose data-filter-item lists "Zoku Ventures". The strings
+  // themselves carry no meaning to this code.
 
   var HIDDEN_CLASS = 'cc-filtered-out';
 
@@ -1275,11 +1279,13 @@
     var scopeEl = resolveScope(menu);
     var emptyEl = scopeEl.querySelector('[data-filter-empty]');
 
-    // Normalise a raw attribute value into lowercase slug tokens.
+    // Split a raw attribute value into its category tokens, trimmed and
+    // lowercased. Only commas and pipes separate categories — NOT whitespace,
+    // because category names ("Zoku Ventures") legitimately contain spaces.
     var tokensOf = function (value) {
       return (value || '')
-        .toLowerCase()
-        .split(/[\s,]+/)
+        .split(/[,|]/)
+        .map(function (s) { return s.trim().toLowerCase(); })
         .filter(Boolean);
     };
 
@@ -1324,7 +1330,7 @@
         b.classList.toggle('cc-active', on);
         b.setAttribute('aria-pressed', on ? 'true' : 'false');
       });
-      apply((btn.getAttribute('data-filter') || '').toLowerCase(), opts);
+      apply((btn.getAttribute('data-filter') || '').trim().toLowerCase(), opts);
     };
 
     buttons.forEach(function (btn) {
@@ -1341,7 +1347,7 @@
     })[0];
     if (!initial) {
       initial = buttons.filter(function (b) {
-        return isAll((b.getAttribute('data-filter') || '').toLowerCase());
+        return isAll((b.getAttribute('data-filter') || '').trim().toLowerCase());
       })[0] || buttons[0];
     }
     setActive(initial, { animate: false });

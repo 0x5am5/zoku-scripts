@@ -77,7 +77,7 @@
      *
      * The pinned tag below is stamped from the repo-root VERSION file by
      * build.sh — do NOT edit it by hand; bump VERSION and run ./build.sh. */
-    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.3.3/zoku-halftone.js';
+    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.3.4/zoku-halftone.js';
     let halftoneLoaded = false;
     let halftoneLoading = false;
     const ensureHalftone = (scope) => {
@@ -1906,6 +1906,11 @@
             if (typeof ResizeObserver === 'function') {
                 const ro = new ResizeObserver(() => {
                     if (active !== -1) positionRail(active);
+                    // A step's body reveal/collapse changes this section's height,
+                    // which shifts everything below it in the document. Let scroll-
+                    // scrub re-cache its track offsets so the halftone sprite stays
+                    // calibrated after the reflow instead of jolting mid-scroll.
+                    window.dispatchEvent(new Event('zoku:layout'));
                 });
                 steps.forEach((step) => ro.observe(step));
                 observers.push(ro);

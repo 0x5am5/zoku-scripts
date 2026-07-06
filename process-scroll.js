@@ -104,6 +104,11 @@
             if (typeof ResizeObserver === 'function') {
                 const ro = new ResizeObserver(() => {
                     if (active !== -1) positionRail(active);
+                    // A step's body reveal/collapse changes this section's height,
+                    // which shifts everything below it in the document. Let scroll-
+                    // scrub re-cache its track offsets so the halftone sprite stays
+                    // calibrated after the reflow instead of jolting mid-scroll.
+                    window.dispatchEvent(new Event('zoku:layout'));
                 });
                 steps.forEach((step) => ro.observe(step));
                 observers.push(ro);

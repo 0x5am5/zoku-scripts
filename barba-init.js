@@ -74,7 +74,7 @@
      *
      * The pinned tag below is stamped from the repo-root VERSION file by
      * build.sh — do NOT edit it by hand; bump VERSION and run ./build.sh. */
-    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.3.1/zoku-halftone.js';
+    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.3.2/zoku-halftone.js';
     let halftoneLoaded = false;
     let halftoneLoading = false;
     const ensureHalftone = (scope) => {
@@ -288,6 +288,37 @@
         });
     };
 
+    /**
+     * Sync the persistent footer's variant to the incoming page.
+     *
+     * The footer is a sibling of <main>, so Barba never swaps it — it keeps the
+     * markup of whichever page was first loaded. Any per-page footer variant
+     * (Webflow emits it either as a combo class OR, like the testimonials rail,
+     * as a `data-wf--footer--variant` attribute) would therefore stay frozen on
+     * the entry page: a direct hit renders correctly, but on SPA navigation the
+     * footer colour never changes. Barba hands us the destination's full HTML,
+     * so copy the incoming footer root's ATTRIBUTES onto the live one — this
+     * covers a combo class and any data-wf variant in one go. Attribute-level
+     * sync (rather than replacing the footer) leaves its children and Barba's
+     * delegated link handling untouched.
+     */
+    const syncFooter = (nextHTML) => {
+        if (!nextHTML) return;
+        const live = document.querySelector('.footer');
+        if (!live) return;
+        const incoming = new DOMParser()
+            .parseFromString(nextHTML, 'text/html')
+            .querySelector('.footer');
+        if (!incoming) return;
+        // Drop attributes the new page no longer carries, then apply its set.
+        Array.from(live.attributes).forEach((a) => {
+            if (!incoming.hasAttribute(a.name)) live.removeAttribute(a.name);
+        });
+        Array.from(incoming.attributes).forEach((a) => {
+            if (live.getAttribute(a.name) !== a.value) live.setAttribute(a.name, a.value);
+        });
+    };
+
     /** Run every module against `scope`, then refresh the global chrome. */
     const initPage = (scope) => {
         ZokuPage.initAll(scope || document);
@@ -357,6 +388,10 @@
         window.barba.hooks.afterEnter((data) => {
             forceManualScroll(); // before the browser's async restore can fire
             window.scrollTo(0, 0);
+            // Update the persistent footer BEFORE initPage: nav-theme.refresh()
+            // (inside initPage) probes the footer's background to colour the nav,
+            // so the footer must already hold the new page's variant.
+            syncFooter(data.next.html);
             initPage(data.next.container);
             // Belt-and-braces: even with scrollRestoration set to 'manual', the
             // sync scrollTo(0, 0) above can be undone a beat later by (a) the

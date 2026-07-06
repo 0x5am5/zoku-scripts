@@ -1,123 +1,361 @@
 <!--
-  Zoku — Webflow custom code.
-  HEAD:   the tiny zoku-js flag (flash-free first paint for the hero intro).
+  Zoku — Webflow custom code. MIRROR of the live Site Settings → Custom Code
+  blocks, synchronised from Webflow (get_site_freeform_code) on 2026-07-05.
+  Webflow is the source of truth — after editing the live blocks, re-sync this
+  file rather than the other way round.
+
+  HEAD:   the tiny zoku-js flag (flash-free first paint for the hero intro)
+          + the runtime-state CSS bucket (selectors Webflow's class system
+          can't hold: [open], ::before content toggles, html.zoku-js …,
+          JS-injected overlays, rich-text tag styling, sibling/descendant
+          combinators keyed on JS state, vendor pseudo-elements).
   FOOTER: external libraries (separate, cached) + the single zoku-core bundle.
-          zoku-core.js lazy-loads zoku-halftone.js on demand (only on pages
-          that contain a [data-halftone] element), so the 34KB WebGL shader
-          never ships to the pages that don't use it.
+          GSAP + ScrollTrigger are NOT loaded here — Webflow's native GSAP
+          integration serves gsap 3.15.0 + ScrollTrigger (and SplitText /
+          Draggable / InertiaPlugin) from cdn.prod.website-files.com on every
+          page. zoku-core.js lazy-loads zoku-halftone.js on demand (only on
+          pages that contain a [data-halftone] element), so the 34KB WebGL
+          shader never ships to the pages that don't use it.
   Webflow pins @vX.Y.Z tags for stability; bump the tag on release.
-  Note: Webflow limits applied scripts to 15 — this uses 5.
 -->
 
 <!-- Site Settings → Custom Code → Head Code -->
-<script>document.documentElement.classList.add("zoku-js");</script>
+<script>
+  document.documentElement.classList.add('zoku-js');
+</script>
 
-<!--
-  Runtime-state CSS bucket — selectors Webflow's class system can't hold
-  ([open], ::before content toggles, html.zoku-js …, JS-injected overlays,
-  descendant/child combinators keyed on JS state). Kept in sync with the
-  Webflow Head freeform <style> block. Verified against the live DOM 2026-07-02.
--->
 <style>
-/* Pillars card-deck (runtime .cc-deck / .cc-pinned added by pillars.js) */
-.zoku-home-pillars.cc-pinned .zoku-home-pillars_lede { position: static; }
-.zoku-home-pillars_cards.cc-deck { display: block; position: relative; height: 46rem; }
-.zoku-home-pillars_cards.cc-deck .zoku-home-pillars_card { position: absolute; inset: 0; margin: 0; }
-@media (max-width: 991px) { .zoku-home-pillars_cards.cc-deck { height: 36rem; } }
-@media (max-width: 767px) { .zoku-home-pillars_cards.cc-deck { height: 28rem; } }
-
-/* Load-animation pre-hide (gated on html.zoku-js — set by the inline head script) */
-.zoku-js .zoku-home-hero_headline [data-hero-line],
-.zoku-js .zoku-home-hero_headline [data-hero-cta] { opacity: 0; transform: translateY(28px); }
-.zoku-js .zoku-home-pillars_lede { opacity: 0; }
-
-@media (prefers-reduced-motion: reduce) {
-  .zoku-js .zoku-home-hero_headline [data-hero-line],
-  .zoku-js .zoku-home-hero_headline [data-hero-cta] { opacity: 1; transform: none; }
-  .zoku-js .zoku-home-pillars_lede { opacity: 1; }
-}
-
-/* Menu drawer runtime state — Designer can't express [open]; must live here */
-html:not(.zoku-menu-ready) .zoku-menu,
-html:not(.zoku-menu-ready) .zoku-menu .zoku-menu_scrim,
-html:not(.zoku-menu-ready) .zoku-menu .zoku-menu_panel {
-  transition: none !important;
-}
-
-.zoku-menu[open] {
-  visibility: visible;
-  pointer-events: auto;
-  transition: visibility 0s linear 0s;
-}
-
-.zoku-menu[open] .zoku-menu_scrim {
-  opacity: 1;
-  transition: opacity 0.8s cubic-bezier(0.23, 1, 0.32, 1);
-}
-
-.zoku-menu[open] .zoku-menu_panel {
-  transform: translateX(0);
-  transition: transform 0.8s cubic-bezier(0.23, 1, 0.32, 1);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .zoku-menu,
-  .zoku-menu[open],
-  .zoku-menu_scrim,
-  .zoku-menu[open] .zoku-menu_scrim,
-  .zoku-menu_panel,
-  .zoku-menu[open] .zoku-menu_panel {
-    transition: none;
+  /* Pillars card-deck (runtime .cc-deck / .cc-pinned added by pillars.js) */
+  .zoku-home-pillars.cc-pinned .zoku-home-pillars_lede {
+    position: static;
   }
-}
+  .zoku-home-pillars_cards.cc-deck {
+    display: block;
+    position: relative;
+    height: 46rem;
+  }
+  .zoku-home-pillars_cards.cc-deck .zoku-home-pillars_card {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+  }
+  @media (max-width: 991px) {
+    .zoku-home-pillars_cards.cc-deck {
+      height: 36rem;
+    }
+  }
+  @media (max-width: 767px) {
+    .zoku-home-pillars_cards.cc-deck {
+      height: 28rem;
+    }
+  }
 
-/* Home portfolio accordion — Webflow imports the rows as <div>s (no native
+  /* Load-animation pre-hide (gated on html.zoku-js — set by the inline head script) */
+  .zoku-js .zoku-home-hero_headline [data-hero-line],
+  .zoku-js .zoku-home-hero_headline [data-hero-cta] {
+    opacity: 0;
+    transform: translateY(28px);
+  }
+  .zoku-js .zoku-home-pillars_lede {
+    opacity: 0;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .zoku-js .zoku-home-hero_headline [data-hero-line],
+    .zoku-js .zoku-home-hero_headline [data-hero-cta] {
+      opacity: 1;
+      transform: none;
+    }
+    .zoku-js .zoku-home-pillars_lede {
+      opacity: 1;
+    }
+  }
+
+  /* Menu drawer runtime state — Designer can't express [open]; must live here */
+  html:not(.zoku-menu-ready) .zoku-menu,
+  html:not(.zoku-menu-ready) .zoku-menu .zoku-menu_scrim,
+  html:not(.zoku-menu-ready) .zoku-menu .zoku-menu_panel {
+    transition: none !important;
+  }
+
+  .zoku-menu[open] {
+    visibility: visible;
+    pointer-events: auto;
+    transition: visibility 0s linear 0s;
+  }
+
+  .zoku-menu[open] .zoku-menu_scrim {
+    opacity: 1;
+    transition: opacity 0.8s cubic-bezier(0.23, 1, 0.32, 1);
+  }
+
+  .zoku-menu[open] .zoku-menu_panel {
+    transform: translateX(0);
+    transition: transform 0.8s cubic-bezier(0.23, 1, 0.32, 1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .zoku-menu,
+    .zoku-menu[open],
+    .zoku-menu_scrim,
+    .zoku-menu[open] .zoku-menu_scrim,
+    .zoku-menu_panel,
+    .zoku-menu[open] .zoku-menu_panel {
+      transition: none;
+    }
+  }
+
+  /* Home portfolio accordion — Webflow imports the rows as <div>s (no native
    <details> collapse + no [open]-driven pseudo toggles), so these runtime-state
    rules must live here. portfolio.js toggles the [open] attribute. */
-.zoku-portfolio-item:not([open]) > .zoku-portfolio-item_body { display: none; }
-.zoku-portfolio-item:not([open]) .zoku-portfolio-item_indicator::before { content: "+"; }
-.zoku-portfolio-item[open] .zoku-portfolio-item_indicator::before { content: "\2212"; }
+  .zoku-portfolio-item:not([open]) > .zoku-portfolio-item_body {
+    display: none;
+  }
+  .zoku-portfolio-item:not([open]) .zoku-portfolio-item_indicator::before {
+    content: '+';
+  }
+  .zoku-portfolio-item[open] .zoku-portfolio-item_indicator::before {
+    content: '\2212';
+  }
 
-/* List filter (filter.js) — the Portfolio "Product" and Resources "Category"
-   listings. filter.js toggles .cc-filtered-out on the collection items whose
-   category doesn't match the active [data-filter] button; this JS-state class
-   isn't something Webflow's Designer can express, so its collapse lives here. */
-.cc-filtered-out { display: none !important; }
-
-/* Hide the raw halftone source image until the WebGL canvas paints,
+  /* Hide the raw halftone source image until the WebGL canvas paints,
   so the still image / raw sprite sheet doesn't flash on load.
   .no-halftone is added by the shader when WebGL2 is unavailable. */
-[data-halftone] > img { visibility: hidden; }
-[data-halftone].no-halftone > img { visibility: visible; }
+  [data-halftone] > img {
+    visibility: hidden;
+  }
+  [data-halftone].no-halftone > img {
+    visibility: visible;
+  }
 
-/* Page transition — Barba.js injects .zoku-band (with .zoku-band_px children)
+  /* Page transition — Barba.js injects .zoku-band (with .zoku-band_px children)
    into <body>; Designer can't express the JS-injected overlay, so its runtime
    CSS lives here. Without it the band renders position:static/height:0 (invisible). */
-.zoku-band { position: fixed; inset: 0; z-index: 10000; display: none; pointer-events: none; }
-.zoku-band_px { background: #161616; will-change: opacity; }
+  .zoku-band {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: none;
+    pointer-events: none;
+  }
+  .zoku-band_px {
+    background: #161616;
+    will-change: opacity;
+  }
 
-/* Adaptive nav — reacts to nav-theme.js toggling .cc-light over light surfaces.
+  /* Adaptive nav — reacts to nav-theme.js toggling .cc-light over light surfaces.
    Webflow can't hold this JS-state selector or the source's custom-property
    cascade, so the light-mode flip is recreated here. */
-.zoku-nav.cc-light .zoku-nav_logo svg { fill: #161616; }
+  .zoku-nav.cc-light .zoku-nav_logo svg {
+    fill: #161616;
+  }
 
-.zoku-nav.cc-light .zoku-nav_menu {
-  color: #161616;
-  -webkit-text-fill-color: #161616;      /* .w-button renders text via this */
-  border-color: rgba(22, 22, 22, 0.25);
-  background-color: rgba(235, 235, 235, 0.45);
-}
-.zoku-nav.cc-light .zoku-nav_menu:hover {
-  border-color: rgba(22, 22, 22, 0.55);
-  background-color: rgba(235, 235, 235, 0.7);
-}
+  .zoku-nav.cc-light .zoku-nav_menu {
+    color: #161616;
+    -webkit-text-fill-color: #161616; /* .w-button renders text via this */
+    border-color: rgba(22, 22, 22, 0.25);
+    background-color: rgba(235, 235, 235, 0.45);
+  }
+  .zoku-nav.cc-light .zoku-nav_menu:hover {
+    border-color: rgba(22, 22, 22, 0.55);
+    background-color: rgba(235, 235, 235, 0.7);
+  }
 
-/* The "shadow" — baked dark on .zoku-nav_scrim as background-image, so override
+  /* The "shadow" — baked dark on .zoku-nav_scrim as background-image, so override
    background-image (not the `background` shorthand). */
-.zoku-nav.cc-light .zoku-nav_scrim {
-  background-image: linear-gradient(to bottom,
-    rgba(235,235,235,.82) 0%, rgba(235,235,235,.48) 45%, rgba(235,235,235,0) 100%);
-}
+  .zoku-nav.cc-light .zoku-nav_scrim {
+    background-image: linear-gradient(to bottom, rgba(235, 235, 235, 0.82) 0%, rgba(235, 235, 235, 0.48) 45%, rgba(235, 235, 235, 0) 100%);
+  }
+
+  /* Testimonials rail edge-fade — the right-edge gradient
+   (source .zoku-testimonials-rail_viewport::after) is baked dark on the
+   Designer pseudo; on the light rail (.cc-light) it must dissolve trailing
+   cards into the cream surface instead of a dark band. This is an
+   ancestor-dependent pseudo Webflow can't express as a class, so the light
+   override lives here. */
+  .zoku-testimonials-rail.cc-light .zoku-testimonials-rail_viewport::after {
+    background-image: linear-gradient(90deg, rgba(235, 235, 235, 0) 0%, rgb(235, 235, 235) 100%);
+  }
+
+  /* Process rail progress (growth "how it works") — process-scroll.js drives the
+   purple segment via the --zoku-process-progress-* custom properties; the
+   Designer class holds static literals, so the var() indirection is restored
+   here (rests collapsed at 0 until the scroll-spy positions it). */
+  .zoku-process_rail-progress {
+    top: var(--zoku-process-progress-offset, 0px);
+    height: var(--zoku-process-progress-height, 0px);
+  }
+
+  /* Scroll-spy collapse — when process-scroll.js arms a section (.is-scrollspy),
+   muted steps also hide their logo tiles and sub-lists (no-JS keeps all visible). */
+  .zoku-process.is-scrollspy .zoku-process-step.cc-muted .zoku-process-step_logos,
+  .zoku-process.is-scrollspy .zoku-process-step.cc-muted .zoku-process-step_list {
+    display: none;
+  }
+
+  /* Resources filter dropdown (portfolio / resources index pages) — the pill is a
+   no-JS checkbox dropdown on mobile. Designer can't hold sibling `:checked ~`
+   selectors, the descendant caret rotation, or clip/clip-path on the
+   visually-hidden checkbox, so those rules live here. Desktop is untouched
+   (inline pill); the dropdown only exists at ≤767px. */
+  .zoku-resources-filter_toggle {
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+  }
+  .zoku-resources-filter_item {
+    appearance: none;
+    background-image: none;
+  }
+
+  @media (max-width: 767px) {
+    .zoku-resources-filter_toggle:focus-visible ~ .zoku-resources-filter_summary {
+      outline: 2px solid var(--_zoku-colour---brand-purple);
+      outline-offset: 2px;
+    }
+
+    .zoku-resources-filter_toggle:checked ~ .zoku-resources-filter_summary .zoku-resources-filter_caret {
+      transform: rotate(180deg);
+    }
+
+    .zoku-resources-filter_toggle:checked ~ .zoku-resources-filter_menu {
+      display: flex;
+      position: absolute;
+      top: calc(100% + var(--_zoku-spacing---space-xs));
+      left: 0;
+      right: 0;
+      z-index: 5;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0;
+      padding: var(--_zoku-spacing---space-xs) 0;
+      background: var(--_zoku-colour---bg-primary);
+      border: 1px solid var(--_zoku-colour---stroke-dark);
+      border-radius: var(--_zoku-radius---radius-md);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .zoku-resources-filter_caret.cc-dropdown {
+      transition: none;
+    }
+  }
+
+  /* Filter caret (permanent) — the caret svg lives inside an HTML embed, so its
+   classes never attach to a canvas element; the matching Designer combo exists
+   but a Designer "clean up unused styles" would purge it as unused. Sized and
+   animated here to be safe. The rest of the 2026-07-02 resources fidelity
+   fallback block was removed 2026-07-05: every other rule was verified to
+   already live on its Designer class/combo at the matching breakpoint/pseudo. */
+  @media (max-width: 767px) {
+    .zoku-resources-filter_caret.cc-dropdown {
+      flex: 0 0 auto;
+      width: 1rem;
+      height: 1rem;
+      transition: transform 0.2s ease;
+    }
+  }
+
+  /* Article detail (Resources Template collection page) — 2026-07-02.
+   The article body comes from the Post Body rich-text field; Designer classes
+   can't style nested rich-text tags, and the source's sibling-adjacency spacing
+   (.a + .b margins) has no Designer representation, so those rules live here.
+   The .zoku-article-prose baseline (Inter, body-lg, muted) IS a Designer class
+   on the Rich Text element — these rules only cover its nested tags. */
+  .zoku-article-prose p {
+    margin: 0 0 var(--_zoku-spacing---space-xl);
+  }
+  .zoku-article-prose > :last-child {
+    margin-bottom: 0;
+  }
+
+  /* Section headings inside the rich text (source .zoku-article-section_heading) */
+  .zoku-article-prose h2 {
+    margin: var(--_zoku-spacing---space-3xl) 0 var(--_zoku-spacing---space-2xl);
+    font-family: 'Sharp Grotesk', sans-serif;
+    font-size: clamp(2rem, 4vw, var(--_zoku-typography---size-display-lg));
+    line-height: 1.083;
+    font-weight: 500;
+    color: var(--_zoku-colour---bg-light);
+    text-transform: lowercase;
+  }
+  .zoku-article-prose h2:first-child {
+    margin-top: 0;
+  }
+
+  /* Sub-headings (source .zoku-article-section_subheading) */
+  .zoku-article-prose h3 {
+    margin: var(--_zoku-spacing---space-2xl) 0 var(--_zoku-spacing---space-md);
+    font-family: 'Sharp Grotesk', sans-serif;
+    font-size: var(--_zoku-typography---size-heading-lg);
+    line-height: 1.214;
+    font-weight: 500;
+    color: var(--_zoku-colour---bg-light);
+    text-transform: lowercase;
+  }
+  .zoku-article-prose h2 + h3 {
+    margin-top: var(--_zoku-spacing---space-md);
+  }
+
+  /* Lead paragraph straight after a section heading (source p.cc-lead — rich
+   text can't carry per-paragraph classes, so the first paragraph after a
+   heading gets the treatment) */
+  .zoku-article-prose h2 + p,
+  .zoku-article-prose h3 + p {
+    color: var(--_zoku-colour---text-primary);
+  }
+
+  /* Pull quote (source .zoku-article-quote) */
+  .zoku-article-prose blockquote {
+    margin: var(--_zoku-spacing---space-2xl) 0;
+    padding: var(--_zoku-spacing---space-sm) 0 var(--_zoku-spacing---space-sm) var(--_zoku-spacing---space-lg);
+    border: 0;
+    border-left: 4px solid var(--_zoku-colour---text-dim);
+    font-size: var(--_zoku-typography---size-body-lg);
+    line-height: 1.444;
+    color: var(--_zoku-colour---text-muted);
+  }
+
+  /* Full-bleed inline figure (source .zoku-article-figure) */
+  .zoku-article-prose figure {
+    width: 54.25rem;
+    max-width: calc(100vw - 2 * var(--_zoku-spacing---space-xl));
+    margin: var(--_zoku-spacing---space-3xl) auto;
+    margin-left: 50%;
+    transform: translateX(-50%);
+  }
+  .zoku-article-prose figure img {
+    width: 100%;
+    border: 1px solid var(--_zoku-colour---stroke-dark);
+    border-radius: 10px;
+  }
+  @media (max-width: 991px) {
+    .zoku-article-prose figure {
+      width: 100%;
+      margin-left: auto;
+      transform: none;
+    }
+  }
+
+  /* Flow spacing between the prose, key-results and share blocks (source
+   sibling-adjacency rules) */
+  .zoku-article-prose + .zoku-article-section_subheading {
+    margin-top: var(--_zoku-spacing---space-2xl);
+  }
+  .zoku-article-section_subheading + .zoku-article-stats {
+    margin-top: var(--_zoku-spacing---space-2xl);
+    margin-bottom: var(--_zoku-spacing---space-2xl);
+  }
+
+  /* Home results rail — hide the WebKit scrollbar on the ≤991px scroll rail.
+   A vendor pseudo-element (::-webkit-scrollbar) has no Designer representation,
+   so this rule is permanent here. The rest of the 2026-07-03 responsive
+   fallback block was removed 2026-07-05: every other rule was verified to
+   already live on its Designer class at the matching breakpoint. */
+  @media screen and (max-width: 991px) {
+    .zoku-home-results_cards::-webkit-scrollbar {
+      display: none;
+    }
+  }
 
 /* Testimonials Rail — Light variant cascade. The Webflow component's Light
    variant emits a data attribute on the rail root
@@ -157,13 +395,21 @@ html:not(.zoku-menu-ready) .zoku-menu .zoku-menu_panel {
 [data-wf--testimonials-rail--variant="light"] .zoku-testimonials-rail_track::after {
   background-image: linear-gradient(90deg, rgba(235,235,235,0) 0%, #ebebeb 100%) !important;
 }
+
+  /* List filter (filter.js) — the Portfolio "Product" and Resources "Category"
+   listings. filter.js toggles .cc-filtered-out on the collection items whose
+   category doesn't match the active [data-filter] button; this JS-state class
+   isn't something Webflow's Designer can express, so its collapse lives here. */
+.cc-filtered-out { display: none !important; }
 </style>
 
 <!-- Site Settings → Custom Code → Footer Code -->
-<!-- All five defer: they parse without blocking; defer preserves execution order,
-     so what matters is order (libraries before zoku-core), not download timing. -->
-<script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js" defer></script>
-<script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/ScrollTrigger.min.js" defer></script>
+<!-- All three defer: they parse without blocking; defer preserves execution order,
+     so what matters is order (libraries before zoku-core), not download timing.
+     GSAP + ScrollTrigger are NOT loaded here — Webflow's native GSAP integration
+     serves them (3.15.0, plus SplitText / Draggable / InertiaPlugin) on every page. -->
 <script src="https://cdn.jsdelivr.net/npm/smooothy@0.0.35/dist/smooothy.min.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/@barba/core@2.10.3/dist/barba.umd.js" defer></script>
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.3.1/zoku-core.js" defer></script>
+<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.3.2/zoku-core.js" defer></script>
+<!-- suppress GSAP trigger warnings -->
+<script>window.addEventListener('load',()=>window.gsap&&gsap.config({nullTargetWarn:false}));</script>

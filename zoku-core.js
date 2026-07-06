@@ -77,7 +77,7 @@
      *
      * The pinned tag below is stamped from the repo-root VERSION file by
      * build.sh — do NOT edit it by hand; bump VERSION and run ./build.sh. */
-    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.3.2/zoku-halftone.js';
+    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.3.3/zoku-halftone.js';
     let halftoneLoaded = false;
     let halftoneLoading = false;
     const ensureHalftone = (scope) => {
@@ -295,31 +295,41 @@
      * Sync the persistent footer's variant to the incoming page.
      *
      * The footer is a sibling of <main>, so Barba never swaps it — it keeps the
-     * markup of whichever page was first loaded. Any per-page footer variant
-     * (Webflow emits it either as a combo class OR, like the testimonials rail,
-     * as a `data-wf--footer--variant` attribute) would therefore stay frozen on
-     * the entry page: a direct hit renders correctly, but on SPA navigation the
-     * footer colour never changes. Barba hands us the destination's full HTML,
-     * so copy the incoming footer root's ATTRIBUTES onto the live one — this
-     * covers a combo class and any data-wf variant in one go. Attribute-level
-     * sync (rather than replacing the footer) leaves its children and Barba's
-     * delegated link handling untouched.
+     * markup of whichever page was first loaded. The footer's light/dark colour
+     * is a Webflow component variant, emitted as a `data-wf--footer--variant`
+     * attribute ("base" | "dark") on the footer component root — NOT a combo
+     * class (same pattern as the testimonials rail). Left alone it stays frozen
+     * on the entry page's value: a direct hit renders correctly, but on SPA
+     * navigation the footer colour never changes.
+     *
+     * Barba hands us the destination's full HTML, so read the incoming variant
+     * and write it onto the live footer. Target the attribute DIRECTLY via
+     * `[data-wf--footer--variant]` rather than assuming it sits on `.footer`:
+     * Webflow may put it on the component root (a wrapper around, or a child of,
+     * the `.footer` element). A combo-class fallback is kept in case a page ever
+     * expresses the variant that way instead.
      */
+    const FOOTER_VARIANT_ATTR = 'data-wf--footer--variant';
     const syncFooter = (nextHTML) => {
         if (!nextHTML) return;
+        const nextDoc = new DOMParser().parseFromString(nextHTML, 'text/html');
+
+        // Primary: the data-attribute variant, wherever it lives in the footer.
+        const liveVariant = document.querySelector('[' + FOOTER_VARIANT_ATTR + ']');
+        const nextVariant = nextDoc.querySelector('[' + FOOTER_VARIANT_ATTR + ']');
+        if (liveVariant && nextVariant) {
+            const value = nextVariant.getAttribute(FOOTER_VARIANT_ATTR);
+            if (liveVariant.getAttribute(FOOTER_VARIANT_ATTR) !== value) {
+                liveVariant.setAttribute(FOOTER_VARIANT_ATTR, value);
+            }
+        }
+
+        // Fallback: a combo class on the footer root.
         const live = document.querySelector('.footer');
-        if (!live) return;
-        const incoming = new DOMParser()
-            .parseFromString(nextHTML, 'text/html')
-            .querySelector('.footer');
-        if (!incoming) return;
-        // Drop attributes the new page no longer carries, then apply its set.
-        Array.from(live.attributes).forEach((a) => {
-            if (!incoming.hasAttribute(a.name)) live.removeAttribute(a.name);
-        });
-        Array.from(incoming.attributes).forEach((a) => {
-            if (live.getAttribute(a.name) !== a.value) live.setAttribute(a.name, a.value);
-        });
+        const incoming = nextDoc.querySelector('.footer');
+        if (live && incoming && live.className !== incoming.className) {
+            live.className = incoming.className;
+        }
     };
 
     /** Run every module against `scope`, then refresh the global chrome. */

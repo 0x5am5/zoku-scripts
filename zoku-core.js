@@ -1765,6 +1765,10 @@
     // page is swapped out (Barba navigation) — otherwise they'd accumulate and
     // keep reading detached, removed DOM.
     let handlers = [];
+    // ResizeObservers watching each section's steps, so the rail re-fits the open
+    // step whenever its height changes after activation (body reveal reflow,
+    // late-loading images/fonts) — a scroll event isn't guaranteed for those.
+    let observers = [];
 
     function destroy() {
         handlers.forEach((onScroll) => {
@@ -1772,6 +1776,8 @@
             window.removeEventListener('resize', onScroll);
         });
         handlers = [];
+        observers.forEach((ro) => ro.disconnect());
+        observers = [];
     }
 
     function init(scope) {
@@ -1848,6 +1854,18 @@
             window.addEventListener('scroll', onScroll, { passive: true });
             window.addEventListener('resize', onScroll);
             handlers.push(onScroll);
+
+            // Re-fit the rail to the open step whenever its height changes without
+            // a scroll (body reveal reflow, images/fonts loading in). Only the
+            // active step's height feeds the rail, so re-position against it.
+            if (typeof ResizeObserver === 'function') {
+                const ro = new ResizeObserver(() => {
+                    if (active !== -1) positionRail(active);
+                });
+                steps.forEach((step) => ro.observe(step));
+                observers.push(ro);
+            }
+
             syncToScroll();
         });
     }

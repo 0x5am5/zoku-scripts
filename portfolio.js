@@ -28,6 +28,10 @@
     // many px on each axis so the follow stays subtle.
     const MAGNET_MAX = 50;
 
+    // On top of the follow, the panel rotates a touch counter-clockwise as the
+    // pointer drops down the section — capped so it only ever nudges the tilt.
+    const ROTATE_MAX = 5;
+
     scopes.forEach((scope) => {
         const items = Array.from(scope.querySelectorAll('.zoku-portfolio-item'))
             .filter((el) => !el.classList.contains('cc-static'));
@@ -41,6 +45,7 @@
         let activePanel = null;
         let followX = null;
         let followY = null;
+        let followRot = null;
 
         // Slide the panel up from below as it fades in, settling into its tilt.
         const revealPanel = (item) => {
@@ -66,10 +71,11 @@
 
             // Clear any leftover offset from a previous open, then point the
             // follow tweens at this panel.
-            window.gsap.set(panel, { x: 0, y: 0 });
+            window.gsap.set(panel, { x: 0, y: 0, rotation: REST_ROTATION });
             activePanel = panel;
             followX = window.gsap.quickTo(panel, 'x', { duration: 0.6, ease: 'power3.out' });
             followY = window.gsap.quickTo(panel, 'y', { duration: 0.6, ease: 'power3.out' });
+            followRot = window.gsap.quickTo(panel, 'rotation', { duration: 0.6, ease: 'power3.out' });
         };
 
         // Magnetic pointer-follow: map the cursor's position within the section
@@ -84,9 +90,13 @@
                 const ny = (e.clientY - (rect.top + rect.height / 2)) / (rect.height / 2);
                 followX(clamp(nx) * MAGNET_MAX);
                 followY(clamp(ny) * MAGNET_MAX);
+                // Lower pointer (ny > 0) winds the panel further counter-clockwise
+                // off its resting tilt; higher pointer eases it back.
+                if (followRot) followRot(REST_ROTATION - clamp(ny) * ROTATE_MAX);
             });
             scope.addEventListener('mouseleave', () => {
                 if (followX) { followX(0); followY(0); }
+                if (followRot) followRot(REST_ROTATION);
             });
         }
 

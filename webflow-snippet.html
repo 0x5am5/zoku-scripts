@@ -414,6 +414,16 @@
   .zoku-resources_list .w-dyn-item:last-child .zoku-resources_divider {
     display: none;
   }
+
+.zoku-resources-featured .zoku-article-card-item:first-child .zoku-article-card {
+    column-gap: var(--_zoku-spacing---space-xl);
+    row-gap: var(--_zoku-spacing---space-xl);
+    flex-direction: row;
+    align-items: stretch;
+}
+  .zoku-resources-featured .zoku-article-card-item:first-child .zoku-article-card .zoku-article-card_media.cc-featured {
+    flex: 0 0 46%;
+  }
 </style>
 
 <!-- Site Settings → Custom Code → Footer Code -->
@@ -423,6 +433,6 @@
      serves them (3.15.0, plus SplitText / Draggable / InertiaPlugin) on every page. -->
 <script src="https://cdn.jsdelivr.net/npm/smooothy@0.0.35/dist/smooothy.min.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/@barba/core@2.10.3/dist/barba.umd.js" defer></script>
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.3.6/zoku-core.js" defer></script>
+<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.3.7/zoku-core.js" defer></script>
 <!-- suppress GSAP trigger warnings -->
 <script>window.addEventListener('load',()=>window.gsap&&gsap.config({nullTargetWarn:false}));</script>

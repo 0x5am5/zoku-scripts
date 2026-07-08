@@ -21,6 +21,10 @@
   //            same. Separate multiple categories with commas, never spaces,
   //            because category names themselves contain spaces. An item with no
   //            data-filter-item is never hidden (it opts out of filtering).
+  //            On Webflow CMS lists the attribute lives on the card INSIDE the
+  //            .w-dyn-item wrapper (the wrapper itself can't carry bound
+  //            attributes), so hiding climbs to the closest .w-dyn-item — the
+  //            whole grid cell collapses instead of leaving an empty hole.
   //   Scope:   an item belongs to a menu when it lives inside the menu's scope.
   //            Scope = the element matched by the menu's data-filter-target
   //            selector, else the menu's closest [data-filter-scope] /
@@ -92,14 +96,17 @@
 
       itemsOf().forEach(function (item) {
         var match = all || tokensOf(item.getAttribute('data-filter-item')).indexOf(slug) !== -1;
-        var wasHidden = item.classList.contains(HIDDEN_CLASS);
-        item.classList.toggle(HIDDEN_CLASS, !match);
-        item.setAttribute('aria-hidden', match ? 'false' : 'true');
+        // Hide the Webflow collection-item wrapper when there is one, so the
+        // grid cell collapses; on static pages the item hides itself.
+        var target = item.closest('.w-dyn-item') || item;
+        var wasHidden = target.classList.contains(HIDDEN_CLASS);
+        target.classList.toggle(HIDDEN_CLASS, !match);
+        target.setAttribute('aria-hidden', match ? 'false' : 'true');
         if (match) {
           shown.push(item);
           // Only animate items that are newly appearing.
           if (animate && wasHidden) {
-            window.gsap.fromTo(item,
+            window.gsap.fromTo(target,
               { opacity: 0, y: 16 },
               { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out', clearProps: 'opacity,transform' }
             );

@@ -50,8 +50,15 @@
                 if (!rail || !progress) return;
                 const railRect = rail.getBoundingClientRect();
                 const stepRect = steps[idx].getBoundingClientRect();
-                progress.style.setProperty('--zoku-process-progress-offset', (stepRect.top - railRect.top) + 'px');
-                progress.style.setProperty('--zoku-process-progress-height', stepRect.height + 'px');
+                // Divided steps carry padding-top (it centres their divider in the
+                // list gap) and that padding is INSIDE the measured rect — without
+                // trimming it the purple segment reaches up past the gap to the
+                // divider instead of hugging the step's visible content.
+                const style = getComputedStyle(steps[idx]);
+                const padTop = parseFloat(style.paddingTop) || 0;
+                const padBottom = parseFloat(style.paddingBottom) || 0;
+                progress.style.setProperty('--zoku-process-progress-offset', (stepRect.top + padTop - railRect.top) + 'px');
+                progress.style.setProperty('--zoku-process-progress-height', (stepRect.height - padTop - padBottom) + 'px');
             };
 
             const setActive = (idx) => {

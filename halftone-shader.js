@@ -52,6 +52,13 @@
  *                           Frame is set externally via ZokuHalftone.setProgress(el, 0–1);
  *                           pair with assets/scripts/scroll-scrub.js.
  *   data-halftone-eager     Marker — render immediately instead of lazily on scroll-in.
+ *   data-halftone-hover     Marker — holographic pointer glow. Dots near the cursor
+ *                           tint towards the hover colour, with the tint's luminance
+ *                           following the source's white value (highlights go bright
+ *                           lavender, shadows stay deep violet). The glow trails the
+ *                           pointer with an eased lag and fades out on leave.
+ *   data-halftone-hover-radius  Glow radius as a fraction of wrapper width (default: 0.5)
+ *   data-halftone-hover-color   Glow tint as #rrggbb (default: #c88dfb — brand purple)
  *
  * ── Public API ──────────────────────────────────────────────────────────────────
  *   window.ZokuHalftone.setProgress(el, p)   Set a scrubbed sprite's progress (0–1).
@@ -60,6 +67,13 @@
  * original <img> is left visible untouched. Honours prefers-reduced-motion by freezing
  * auto-played sprites on their first frame. One shared WebGL2 context is multiplexed
  * across every instance on the page (browsers cap live contexts at ~16).
+ *
+ * Responsive images (Webflow srcset): sprite sheets always texture from the img's
+ * `src` attribute — the ORIGINAL asset — because the frame grid is defined by the
+ * authored sheet and Webflow's scaled srcset variants would shrink every cell (and
+ * can break the 960×540 auto-detect). Still images texture from the browser's
+ * srcset pick and re-texture automatically when a LARGER variant loads (e.g. after
+ * a window resize), so the halftone never keeps sampling a stale small variant.
  */
 (function () {
     'use strict';
@@ -95,6 +109,10 @@ uniform bool sizeByLuma;
 uniform float fixedRadius;
 uniform bool coverFit;
 uniform float srcAspect;
+uniform vec2 hoverPos;       // eased pointer position in canvas UV (y-up)
+uniform float hoverStrength; // eased hover presence, 0 (idle) – 1 (hovering)
+uniform float hoverRadius;   // glow radius in canvas-width units
+uniform vec3 hoverColor;     // base holographic tint
 
 out vec4 outColor;
 
@@ -157,8 +175,23 @@ void main() {
   // 5. Sample at the cell centre for a uniform fill colour per circle.
   vec2 sampleUV = (cellPos + 0.5) / gridCount;
   vec4 sampledColor = texture(tex, fitUV(sampleUV));
+  vec3 rgb = sampledColor.rgb;
 
-  outColor = vec4(sampledColor.rgb, sampledColor.a * mask);
+  // 6. Holographic hover glow — dots near the pointer shift towards hoverColor,
+  // the tint's luminance following the source's white value: highlights bloom
+  // towards a pale lavender, shadows sink into deep violet. sampleUV is the cell
+  // centre in CANVAS space (pre-fitUV), matching hoverPos; scaling y by the
+  // aspect ratio keeps the falloff circular on non-square wrappers.
+  if (hoverStrength > 0.001) {
+    vec2 offset = (sampleUV - hoverPos) * vec2(1.0, aspectRatio);
+    float glow = 1.0 - smoothstep(0.0, hoverRadius, length(offset));
+    glow *= glow;
+    float luma = getLuma(rgb);
+    vec3 holo = mix(hoverColor * 0.25, mix(hoverColor, vec3(1.0), 0.5), luma);
+    rgb = mix(rgb, holo, glow * hoverStrength);
+  }
+
+  outColor = vec4(rgb, sampledColor.a * mask);
 }`;
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -174,9 +207,26 @@ void main() {
     /** Fade-in duration (ms) for an instance's canvas on its first painted frame. */
     const REVEAL_FADE_MS = 700;
 
+    /** Hover-glow easing rates (per second, exponential): position trails the pointer
+     *  gently, the glow blooms in fairly quickly and lingers on the way out. */
+    const HOVER_FOLLOW_RATE = 6;
+    const HOVER_FADE_IN_RATE = 7;
+    const HOVER_FADE_OUT_RATE = 2.5;
+
+    /** Default hover tint — Zoku brand purple (#c88dfb). */
+    const HOVER_COLOR_DEFAULT = [200 / 255, 141 / 255, 251 / 255];
+
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
     const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+
+    /** Parse a #rrggbb string into [r,g,b] (0–1), falling back when absent/invalid. */
+    function parseHexColor(str, fallback) {
+        const m = typeof str === 'string' && str.trim().match(/^#?([0-9a-f]{6})$/i);
+        if (!m) return fallback;
+        const n = parseInt(m[1], 16);
+        return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+    }
 
     /** Read a numeric data-halftone-<name>, falling back when absent/invalid. */
     function numAttr(el, name, fallback) {
@@ -200,6 +250,9 @@ void main() {
             rows: Math.max(0, Math.round(numAttr(el, 'rows', 0))),
             scrub: el.hasAttribute('data-halftone-scrub'),
             eager: el.hasAttribute('data-halftone-eager'),
+            hover: el.hasAttribute('data-halftone-hover'),
+            hoverRadius: clamp(numAttr(el, 'hover-radius', 0.5), 0.05, 2),
+            hoverColor: parseHexColor(el.getAttribute('data-halftone-hover-color'), HOVER_COLOR_DEFAULT),
         };
     }
 
@@ -330,6 +383,10 @@ void main() {
                 fixedRadius: gl.getUniformLocation(program, 'fixedRadius'),
                 coverFit: gl.getUniformLocation(program, 'coverFit'),
                 srcAspect: gl.getUniformLocation(program, 'srcAspect'),
+                hoverPos: gl.getUniformLocation(program, 'hoverPos'),
+                hoverStrength: gl.getUniformLocation(program, 'hoverStrength'),
+                hoverRadius: gl.getUniformLocation(program, 'hoverRadius'),
+                hoverColor: gl.getUniformLocation(program, 'hoverColor'),
             };
             return true;
         }
@@ -359,6 +416,11 @@ void main() {
             gl.uniform1i(u.sizeByLuma, inst.config.luma ? 1 : 0);
             gl.uniform1f(u.fixedRadius, inst.config.radius);
             gl.uniform1i(u.coverFit, inst.config.fit === 'cover' ? 1 : 0);
+            const hov = inst.hover;
+            gl.uniform2f(u.hoverPos, hov ? hov.x : 0.5, hov ? hov.y : 0.5);
+            gl.uniform1f(u.hoverStrength, hov ? hov.s : 0);
+            gl.uniform1f(u.hoverRadius, inst.config.hoverRadius);
+            gl.uniform3f(u.hoverColor, inst.config.hoverColor[0], inst.config.hoverColor[1], inst.config.hoverColor[2]);
             // Source aspect (cell for sprites, natural size for stills) drives the cover crop.
             let sw = 1, sh = 1;
             if (inst.sprite) { sw = inst.sprite.cellW; sh = inst.sprite.cellH; }
@@ -417,11 +479,15 @@ void main() {
             still: null,               // <img> for the plain-image case
             loaded: false,
             loading: false,
+            loadedSrc: '',             // URL the current texture was loaded from
             revealed: false,
             // Sprite playback.
             spriteFrameF: 0,
             lastDrawnFrame: -1,
             scrubProgress: 0,          // 0–1, set via setProgress() for scrub sprites
+            // Hover glow — eased position (x/y) chases the pointer target (tx/ty),
+            // eased strength (s) chases the presence target (ts). Canvas UV, y-up.
+            hover: config.hover ? { x: 0.5, y: 0.5, tx: 0.5, ty: 0.5, s: 0, ts: 0 } : null,
             // Lifecycle.
             active: false,
             dirty: true,
@@ -430,6 +496,36 @@ void main() {
         // The output canvas is positioned absolutely, so the wrapper needs a position context.
         if (getComputedStyle(el).position === 'static') el.style.position = 'relative';
         el.appendChild(outCanvas);
+
+        // Hover glow — track the pointer on the wrapper (the canvas is pointer-events:
+        // none). Targets are set here; the eased chase happens per-frame in tick().
+        if (inst.hover) {
+            const setTarget = (e) => {
+                const rect = el.getBoundingClientRect();
+                if (rect.width < 1 || rect.height < 1) return;
+                inst.hover.tx = clamp((e.clientX - rect.left) / rect.width, 0, 1);
+                inst.hover.ty = clamp(1 - (e.clientY - rect.top) / rect.height, 0, 1); // texCoord is y-up
+            };
+            el.addEventListener('pointerenter', (e) => {
+                setTarget(e);
+                // Fully faded out → bloom at the cursor rather than sweeping in from
+                // wherever the glow last died.
+                if (inst.hover.s < 0.01) {
+                    inst.hover.x = inst.hover.tx;
+                    inst.hover.y = inst.hover.ty;
+                }
+                inst.hover.ts = 1;
+                renderLoopKick();
+            });
+            el.addEventListener('pointermove', (e) => {
+                setTarget(e);
+                renderLoopKick();
+            });
+            el.addEventListener('pointerleave', () => {
+                inst.hover.ts = 0;
+                renderLoopKick();
+            });
+        }
 
         /**
          * On the first painted frame: hide the original <img> (graceful fallback) and
@@ -449,17 +545,28 @@ void main() {
             const grid = resolveGrid(config, source.naturalWidth, source.naturalHeight);
             if (grid && grid.cols * grid.rows > 1) {
                 inst.sprite = makeSpriteSheet(source, grid.cols, grid.rows);
+                inst.still = null;
                 drawSpriteFrame(inst.sprite, 0);
             } else {
+                inst.sprite = null;
                 inst.still = source;
             }
+            inst.lastDrawnFrame = -1;  // force a texture re-upload (matters on re-loads)
             inst.loaded = true;
             inst.dirty = true;
             renderLoopKick();
         }
 
         /**
-         * Kick off image loading (idempotent).
+         * True when the element is authored as a sprite sheet: its frame grid is
+         * defined by the ORIGINAL asset, so the browser's responsive-variant pick
+         * (currentSrc) must be bypassed — a scaled Webflow srcset variant shrinks
+         * every frame cell and can break the 960×540 auto-detect.
+         */
+        const spriteSource = config.scrub || config.type === 'sprite' || (config.cols > 0 && config.rows > 0);
+
+        /**
+         * Kick off image loading (idempotent per URL — re-runs load a NEW source).
          *
          * The wrapper's <img> is rendered by Webflow WITHOUT crossorigin, so it is
          * fetched under the browser's default (no-CORS) mode. Drawing that image into
@@ -468,19 +575,40 @@ void main() {
          * as the texture source: we load a FRESH, CORS-enabled copy of the same URL
          * (Webflow's CDN, cdn.prod.website-files.com, returns Access-Control-Allow-Origin)
          * and hand that clean, un-tainted image to onImageReady instead.
+         *
+         * Sprites read the img's `src` attribute (the original sheet); stills take
+         * the browser's srcset pick and may be re-loaded later when it upgrades.
          */
         inst.loadSource = function () {
-            if (inst.loaded || inst.loading || !img) return;
+            if (inst.loading || !img) return;
+            const src = spriteSource ? (img.src || img.currentSrc) : (img.currentSrc || img.src);
+            if (!src || src === inst.loadedSrc) return;
             inst.loading = true;
-            const src = img.currentSrc || img.src;
-            if (!src) { inst.loading = false; return; }
             const tex = new Image();
             tex.crossOrigin = 'anonymous';
             tex.decoding = 'async';
-            tex.addEventListener('load', () => onImageReady(tex), { once: true });
+            tex.addEventListener('load', () => {
+                inst.loading = false;
+                inst.loadedSrc = src;
+                onImageReady(tex);
+            }, { once: true });
             tex.addEventListener('error', () => { inst.loading = false; }, { once: true });
             tex.src = src;
         };
+
+        // Responsive imgs fire `load` again each time a new srcset candidate loads
+        // (e.g. the browser upgrading to a larger variant after a window resize).
+        // Re-texture from the upgrade so the halftone doesn't keep sampling the
+        // stale small variant; never downgrade. Sprites are pinned to the original
+        // src above, so their loadSource call is a no-op here.
+        if (img) {
+            img.addEventListener('load', () => {
+                if (!inst.loaded) return;
+                const have = inst.still ? inst.still.naturalWidth
+                    : inst.sprite ? inst.sprite.img.naturalWidth : 0;
+                if (img.naturalWidth > have) inst.loadSource();
+            });
+        }
 
         /** Measure the wrapper box, size the backing store (capped DPR), derive cell density. */
         inst.setSize = function () {
@@ -510,9 +638,40 @@ void main() {
             return !!(inst.sprite && inst.sprite.frames > 1);
         };
 
+        /** True while the hover glow is still chasing its position/strength targets. */
+        inst.hoverAnimating = function () {
+            const h = inst.hover;
+            if (!h) return false;
+            if (Math.abs(h.ts - h.s) > 0.002) return true;
+            return h.s > 0.002 && (Math.abs(h.tx - h.x) > 0.001 || Math.abs(h.ty - h.y) > 0.001);
+        };
+
+        /** Ease the hover glow towards its targets (frame-rate independent). */
+        function updateHover(dt) {
+            const h = inst.hover;
+            if (!h || dt <= 0 || !inst.hoverAnimating()) return;
+            if (prefersReducedMotion.matches) {
+                // No trailing motion — the tint just appears under the cursor and
+                // vanishes on leave.
+                h.x = h.tx;
+                h.y = h.ty;
+                h.s = h.ts;
+            } else {
+                const kp = 1 - Math.exp(-HOVER_FOLLOW_RATE * dt);
+                h.x += (h.tx - h.x) * kp;
+                h.y += (h.ty - h.y) * kp;
+                const rate = h.ts > h.s ? HOVER_FADE_IN_RATE : HOVER_FADE_OUT_RATE;
+                h.s += (h.ts - h.s) * (1 - Math.exp(-rate * dt));
+                if (Math.abs(h.ts - h.s) < 0.002) h.s = h.ts;
+            }
+            inst.dirty = true;
+        }
+
         /** Advance source state for this frame and render if anything changed. */
         inst.tick = function (dt) {
             if (!inst.loaded || renderer.lost) return;
+
+            updateHover(dt);
 
             if (inst.sprite) {
                 const frames = inst.sprite.frames;
@@ -637,9 +796,9 @@ void main() {
         let hasWork = false;
         instances.forEach((inst) => {
             if (!inst || !inst.active) return;
-            if (inst.isAnimated() || inst.dirty) {
+            if (inst.isAnimated() || inst.hoverAnimating() || inst.dirty) {
                 inst.tick(dt);
-                if (inst.isAnimated()) hasWork = true;
+                if (inst.isAnimated() || inst.hoverAnimating()) hasWork = true;
             }
         });
 

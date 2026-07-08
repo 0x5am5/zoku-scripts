@@ -460,24 +460,30 @@
  * Slide-out navigation drawer + staged content entrance.
  *
  * Wires the nav MENU chip ([data-nav-toggle]) to the .zoku-menu panel
- * ([data-nav-menu]). Toggles the [open] attribute (CSS owns the panel/scrim
- * slide), keeps aria state in sync, locks body scroll, closes on scrim/close
- * button click or Escape, and restores focus to the trigger on close.
+ * ([data-nav-menu]). The chip is the SINGLE open/close control: while the
+ * drawer is open the nav is lifted above it (.zoku-nav gains .cc-menu-open,
+ * CSS raises its z-index and collapses pointer-events to the chip) and the
+ * chip's label ticks from MENU to CLOSE — per-letter spans slide horizontally
+ * away, staggered, with the incoming word trailing in (pure CSS, keyed on
+ * aria-expanded). Toggles the [open] attribute (CSS owns the panel/scrim
+ * slide), keeps aria state in sync, locks body scroll, closes on scrim click
+ * or Escape.
  *
  * On open, a GSAP timeline staggers the drawer contents in this order:
  *   1. The "// contents" eyebrow rises + fades in first (on its own).
- *   2. Overlapping the tail of (1): the purple rail-progress segment rises from
- *      the bottom of the rail to rest beside the current page's link, the dim
- *      rail-track draws downward (top→bottom), and the menu links rise + fade in
- *      so each appears as the rail passes its position.
+ *   2. Overlapping the tail of (1): the rail mask (.zoku-menu_rail-mask,
+ *      wrapping the dim track AND the purple progress segment) is revealed
+ *      top→bottom via clip-path — the rail's children no longer animate on
+ *      their own — and the menu links rise + fade in sync with the reveal.
  *   3. Once the list has finished, the footer items stagger in the same way.
  *
  * The rail spans the links only — the eyebrow sits above it. The purple
  * progress segment is shown ONLY when a menu link is the current page: it is
- * positioned next to the .cc-current link on open and animates in beside it.
- * When no link is current (e.g. the home page, which isn't a menu entry) the
- * segment is hidden entirely and never animates. This runs independent of GSAP
- * so the placement/hiding holds under prefers-reduced-motion too.
+ * statically positioned next to the .cc-current link on open (no motion of
+ * its own) and simply uncovered by the mask reveal. When no link is current
+ * (e.g. the home page, which isn't a menu entry) the segment is hidden
+ * entirely. This runs independent of GSAP so the placement/hiding holds under
+ * prefers-reduced-motion too.
  *
  * GSAP is optional — without it (or under prefers-reduced-motion) the content
  * is simply shown with no animation (nothing is hidden in CSS).
@@ -487,13 +493,18 @@
     const menu = document.querySelector('[data-nav-menu]');
     if (!toggle || !menu) return;
 
+    const nav = toggle.closest('.zoku-nav');
     const panel = menu.querySelector('.zoku-menu_panel');
     const scrim = menu.querySelector('.zoku-menu_scrim');
     const closers = menu.querySelectorAll('[data-nav-close]');
     let lastFocus = null;
 
-    // Elements whose CSS transitions must be bypassed for an instant close.
-    const flowEls = () => [menu, scrim, panel].filter(Boolean);
+    // Elements whose CSS transitions must be bypassed for an instant close —
+    // the drawer flow plus the chip's MENU/CLOSE letters (which would
+    // otherwise visibly tick back on a bfcache-restore force-close).
+    const flowEls = () => [menu, scrim, panel]
+        .concat(Array.from(toggle.querySelectorAll('.zoku-nav_menu-char')))
+        .filter(Boolean);
     // Drop any inline transition:none left behind by an instant close (notably
     // after a bfcache cycle cancels the clean-up rAF) so the next open animates.
     const clearInstantOverride = () => flowEls().forEach((el) => { el.style.transition = ''; });
@@ -504,7 +515,7 @@
     const animate = !!gsap && !prefersReduced;
 
     const eyebrow = menu.querySelector('.zoku-menu_eyebrow');
-    const railTrack = menu.querySelector('.zoku-menu_rail-track');
+    const railMask = menu.querySelector('.zoku-menu_rail-mask');
     const progress = menu.querySelector('.zoku-menu_rail-progress');
     const listItems = menu.querySelectorAll('.zoku-menu_link');
     const footerItems = menu.querySelectorAll('.zoku-menu_footer-label, .zoku-menu_footer-link');
@@ -517,9 +528,10 @@
      * right spot even under prefers-reduced-motion. The segment is shown ONLY
      * when a link carries .cc-current (it sits centred on that link); when no
      * menu item is current (e.g. the home page, which isn't a menu entry) the
-     * segment is hidden entirely — there is no section to mark. Returns the
-     * resting `top` offset within the rail, or null when nothing is current
-     * (which the intro reads as "no progress to animate in").
+     * segment is hidden entirely — there is no section to mark. The segment
+     * never moves on its own — the rail mask reveal simply uncovers it in
+     * place. Returns the resting `top` offset within the rail, or null when
+     * nothing is current.
      */
     const positionProgress = () => {
         if (!progress) return null;
@@ -604,13 +616,9 @@
     const buildIntro = () => {
         if (!animate) return null;
 
-        // Measure the rail now the panel is laid out, and place the progress
-        // segment so it rises to rest beside the current link.
-        const restingTop = positionProgress();
-        const railH = progress && progress.parentElement
-            ? progress.parentElement.getBoundingClientRect().height
-            : 0;
-        const progH = progress ? progress.getBoundingClientRect().height : 0;
+        // Place the progress segment beside the current link now the panel is
+        // laid out — it rests there statically; the mask reveal uncovers it.
+        positionProgress();
 
         // Everything kicks off right as the panel starts sliding in (the slide
         // is ~0.8s) — the eyebrow leads by a hair, then the rail/list follow,
@@ -618,12 +626,9 @@
         // not after it settles.
         const t0 = 0;             // eyebrow leads, as the panel slides out
         const eyebrowDur = 0.35;  // "// contents" rises + fades in first
-        const lead = 0.15;        // the rail/progress begin just after the eyebrow
-        const bStart = lead;
-        const riseDur = 0.4;      // progress: bottom → resting spot
-        const stageOverlap = 0.18; // each stage starts a touch before the prior ends
-        const reveal = bStart + riseDur - stageOverlap; // rail/list begin (~0.37s in)
-        const railDraw = 0.4;     // track draws top → bottom (fast — fits inside the panel slide-in)
+        const reveal = 0.37;      // rail mask + list begin — unchanged from when
+                                  // the rail track started its draw (0.15 + 0.4 − 0.18)
+        const railDraw = 0.4;     // mask reveals top → bottom (fast — fits inside the panel slide-in)
         const itemDur = 0.5;
         const listStagger = 0.08; // halved with railDraw so the list stays in sync with the rail
         const footerOverlap = 0.3; // footer begins while the list tail is still settling
@@ -638,18 +643,12 @@
                 { opacity: 1, y: 0, duration: eyebrowDur, ease: 'power3.out' }, t0);
         }
 
-        // 2. Progress rises from the bottom of the rail to rest beside the link.
-        if (progress && restingTop !== null) {
-            tl.fromTo(progress,
-                { y: Math.max(railH - progH - restingTop, 0) },
-                { y: 0, duration: riseDur, ease: 'power3.out' }, bStart);
-        }
-
-        // 2b. Rail draws downward + list items rise/fade in sync with it.
-        if (railTrack) {
-            tl.fromTo(railTrack,
-                { scaleY: 0 },
-                { scaleY: 1, duration: railDraw, ease: 'power2.out' }, reveal);
+        // 2. Rail mask reveals track + progress together, top → bottom, while
+        //    the list items rise/fade in sync with it.
+        if (railMask) {
+            tl.fromTo(railMask,
+                { clipPath: 'inset(0% 0% 100% 0%)' },
+                { clipPath: 'inset(0% 0% 0% 0%)', duration: railDraw, ease: 'power2.out' }, reveal);
         }
         if (listItems.length) {
             tl.fromTo(listItems,
@@ -674,6 +673,10 @@
         lastFocus = document.activeElement;
         menu.setAttribute('open', '');
         toggle.setAttribute('aria-expanded', 'true');
+        toggle.setAttribute('aria-label', 'Close menu');
+        // Lift the nav above the drawer so the chip stays clickable as CLOSE
+        // (CSS: z-index raise + pointer-events collapse to the chip + blur fade).
+        if (nav) nav.classList.add('cc-menu-open');
         if (panel) panel.setAttribute('aria-hidden', 'false');
         document.body.style.overflow = 'hidden';
 
@@ -686,8 +689,8 @@
             positionProgress();
         }
 
-        const target = menu.querySelector('[data-nav-close], a, button');
-        if (target) target.focus();
+        // Focus stays on the toggle — it is the close control (now reading
+        // CLOSE), so there is nothing better to move focus to.
     };
 
     /**
@@ -705,16 +708,20 @@
         }
         menu.removeAttribute('open');
         toggle.setAttribute('aria-expanded', 'false');
+        toggle.setAttribute('aria-label', 'Open menu');
+        if (nav) nav.classList.remove('cc-menu-open');
         if (panel) panel.setAttribute('aria-hidden', 'true');
         document.body.style.overflow = '';
 
         // Reset the entrance so the next open replays from the start. Clearing
         // the inline props GSAP wrote restores the resting (visible) state once
-        // the panel has slid away.
+        // the panel has slid away. (The progress segment is deliberately NOT
+        // cleared — its inline top/height/display come from positionProgress,
+        // not GSAP, and are recomputed on every open.)
         if (intro) {
             intro.kill();
             intro = null;
-            if (gsap) gsap.set([eyebrow, progress, railTrack, ...listItems, ...footerItems].filter(Boolean), { clearProps: 'all' });
+            if (gsap) gsap.set([eyebrow, railMask, ...listItems, ...footerItems].filter(Boolean), { clearProps: 'all' });
         }
 
         if (instant) {
@@ -1195,7 +1202,7 @@
     const MAGNET_MAX = 50;
 
     // On top of the follow, the panel rotates a touch counter-clockwise as the
-    // pointer drops down the section — capped so it only ever nudges the tilt.
+    // pointer moves right across the section — capped so it only ever nudges the tilt.
     const ROTATE_MAX = 5;
 
     scopes.forEach((scope) => {
@@ -1256,9 +1263,9 @@
                 const ny = (e.clientY - (rect.top + rect.height / 2)) / (rect.height / 2);
                 followX(clamp(nx) * MAGNET_MAX);
                 followY(clamp(ny) * MAGNET_MAX);
-                // Lower pointer (ny > 0) winds the panel further counter-clockwise
-                // off its resting tilt; higher pointer eases it back.
-                if (followRot) followRot(REST_ROTATION - clamp(ny) * ROTATE_MAX);
+                // Pointer right of centre (nx > 0) winds the panel further
+                // counter-clockwise off its resting tilt; left of centre eases it back.
+                if (followRot) followRot(REST_ROTATION - clamp(nx) * ROTATE_MAX);
             });
             scope.addEventListener('mouseleave', () => {
                 if (followX) { followX(0); followY(0); }

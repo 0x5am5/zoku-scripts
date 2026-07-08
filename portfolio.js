@@ -29,7 +29,7 @@
     const MAGNET_MAX = 50;
 
     // On top of the follow, the panel rotates a touch counter-clockwise as the
-    // pointer drops down the section — capped so it only ever nudges the tilt.
+    // pointer moves right across the section — capped so it only ever nudges the tilt.
     const ROTATE_MAX = 5;
 
     scopes.forEach((scope) => {
@@ -90,9 +90,9 @@
                 const ny = (e.clientY - (rect.top + rect.height / 2)) / (rect.height / 2);
                 followX(clamp(nx) * MAGNET_MAX);
                 followY(clamp(ny) * MAGNET_MAX);
-                // Lower pointer (ny > 0) winds the panel further counter-clockwise
-                // off its resting tilt; higher pointer eases it back.
-                if (followRot) followRot(REST_ROTATION - clamp(ny) * ROTATE_MAX);
+                // Pointer right of centre (nx > 0) winds the panel further
+                // counter-clockwise off its resting tilt; left of centre eases it back.
+                if (followRot) followRot(REST_ROTATION - clamp(nx) * ROTATE_MAX);
             });
             scope.addEventListener('mouseleave', () => {
                 if (followX) { followX(0); followY(0); }

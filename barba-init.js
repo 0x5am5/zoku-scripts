@@ -74,7 +74,7 @@
      *
      * The pinned tag below is stamped from the repo-root VERSION file by
      * build.sh — do NOT edit it by hand; bump VERSION and run ./build.sh. */
-    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.3.4/zoku-halftone.js';
+    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.3.5/zoku-halftone.js';
     let halftoneLoaded = false;
     let halftoneLoading = false;
     const ensureHalftone = (scope) => {
@@ -326,6 +326,20 @@
         const incoming = nextDoc.querySelector('.footer');
         if (live && incoming && live.className !== incoming.className) {
             live.className = incoming.className;
+        }
+
+        // The wordmark expresses its light/dark state as a Webflow variant COMBO
+        // CLASS on the element itself, not via the data-attribute variant above:
+        // dark carries `footer_wordmark w-variant-84b5707f-0067-1a21-5745-1a239b984f4e`,
+        // light is just `footer_wordmark`. Like the footer root it lives outside
+        // <main>, so Barba never swaps it and it stays frozen on the entry page's
+        // classes. Copy the incoming page's class list across — this tracks both
+        // directions automatically (the variant class is present or absent in the
+        // destination HTML) without hard-coding which pages are dark.
+        const liveWordmark = document.querySelector('.footer_wordmark');
+        const nextWordmark = nextDoc.querySelector('.footer_wordmark');
+        if (liveWordmark && nextWordmark && liveWordmark.className !== nextWordmark.className) {
+            liveWordmark.className = nextWordmark.className;
         }
     };
 

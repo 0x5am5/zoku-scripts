@@ -77,7 +77,7 @@
      *
      * The pinned tag below is stamped from the repo-root VERSION file by
      * build.sh — do NOT edit it by hand; bump VERSION and run ./build.sh. */
-    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.3.4/zoku-halftone.js';
+    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.3.5/zoku-halftone.js';
     let halftoneLoaded = false;
     let halftoneLoading = false;
     const ensureHalftone = (scope) => {
@@ -329,6 +329,20 @@
         const incoming = nextDoc.querySelector('.footer');
         if (live && incoming && live.className !== incoming.className) {
             live.className = incoming.className;
+        }
+
+        // The wordmark expresses its light/dark state as a Webflow variant COMBO
+        // CLASS on the element itself, not via the data-attribute variant above:
+        // dark carries `footer_wordmark w-variant-84b5707f-0067-1a21-5745-1a239b984f4e`,
+        // light is just `footer_wordmark`. Like the footer root it lives outside
+        // <main>, so Barba never swaps it and it stays frozen on the entry page's
+        // classes. Copy the incoming page's class list across — this tracks both
+        // directions automatically (the variant class is present or absent in the
+        // destination HTML) without hard-coding which pages are dark.
+        const liveWordmark = document.querySelector('.footer_wordmark');
+        const nextWordmark = nextDoc.querySelector('.footer_wordmark');
+        if (liveWordmark && nextWordmark && liveWordmark.className !== nextWordmark.className) {
+            liveWordmark.className = nextWordmark.className;
         }
     };
 
@@ -1180,6 +1194,10 @@
     // many px on each axis so the follow stays subtle.
     const MAGNET_MAX = 50;
 
+    // On top of the follow, the panel rotates a touch counter-clockwise as the
+    // pointer drops down the section — capped so it only ever nudges the tilt.
+    const ROTATE_MAX = 5;
+
     scopes.forEach((scope) => {
         const items = Array.from(scope.querySelectorAll('.zoku-portfolio-item'))
             .filter((el) => !el.classList.contains('cc-static'));
@@ -1193,6 +1211,7 @@
         let activePanel = null;
         let followX = null;
         let followY = null;
+        let followRot = null;
 
         // Slide the panel up from below as it fades in, settling into its tilt.
         const revealPanel = (item) => {
@@ -1218,10 +1237,11 @@
 
             // Clear any leftover offset from a previous open, then point the
             // follow tweens at this panel.
-            window.gsap.set(panel, { x: 0, y: 0 });
+            window.gsap.set(panel, { x: 0, y: 0, rotation: REST_ROTATION });
             activePanel = panel;
             followX = window.gsap.quickTo(panel, 'x', { duration: 0.6, ease: 'power3.out' });
             followY = window.gsap.quickTo(panel, 'y', { duration: 0.6, ease: 'power3.out' });
+            followRot = window.gsap.quickTo(panel, 'rotation', { duration: 0.6, ease: 'power3.out' });
         };
 
         // Magnetic pointer-follow: map the cursor's position within the section
@@ -1236,9 +1256,13 @@
                 const ny = (e.clientY - (rect.top + rect.height / 2)) / (rect.height / 2);
                 followX(clamp(nx) * MAGNET_MAX);
                 followY(clamp(ny) * MAGNET_MAX);
+                // Lower pointer (ny > 0) winds the panel further counter-clockwise
+                // off its resting tilt; higher pointer eases it back.
+                if (followRot) followRot(REST_ROTATION - clamp(ny) * ROTATE_MAX);
             });
             scope.addEventListener('mouseleave', () => {
                 if (followX) { followX(0); followY(0); }
+                if (followRot) followRot(REST_ROTATION);
             });
         }
 
@@ -1861,16 +1885,21 @@
                     active = idx;
                     steps.forEach((step, i) => {
                         const on = i === idx;
+                        // The step's classes are pure state markers (the logo/list
+                        // collapse keys off them via the .is-scrollspy head rules).
                         step.classList.toggle('cc-active', on);
                         step.classList.toggle('cc-muted', !on);
-                        // Reveal the active step's body / dropdown copy and hide the
-                        // rest. The body's own cc-muted class is what drives its
-                        // display (.zoku-process-step_body.cc-muted { display:none }),
-                        // and the static markup only marks the initially-active step's
-                        // body visible — so it must be toggled in lock-step here or
-                        // only the first step ever shows its description as you scroll.
-                        const body = step.querySelector('.zoku-process-step_body');
-                        if (body) body.classList.toggle('cc-muted', !on);
+                        // The visible muting lives on Designer combos on the LEAF
+                        // elements — index/title dim to 40% opacity, body collapses
+                        // — so it stays editable in Webflow's Designer. Deliberately
+                        // NOT group opacity on the step: opacity < 1 composites the
+                        // whole step subtree offscreen, and iOS Safari can paint
+                        // that layer stale mid-scroll (a full-opacity ghost of the
+                        // title at its pre-reflow position).
+                        ['_index', '_title', '_body'].forEach((leaf) => {
+                            const el = step.querySelector('.zoku-process-step' + leaf);
+                            if (el) el.classList.toggle('cc-muted', !on);
+                        });
                     });
                 }
                 positionRail(idx);

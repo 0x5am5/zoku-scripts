@@ -764,7 +764,11 @@ void main() {
  *
  * Progress tracks the [data-scrub-track] element's travel THROUGH the viewport
  * (defaults to the sprite's parent): 0 as the track enters from the bottom, 1 just
- * before it leaves the top. Tunable per sprite via data-scrub-enter / data-scrub-leave.
+ * before it leaves the top. Tunable per sprite via data-scrub-enter / data-scrub-leave,
+ * with per-breakpoint overrides via the Webflow-breakpoint suffixes -tablet (≤991px),
+ * -mobile (≤767px) and -mobile-portrait (≤479px) — e.g. data-scrub-enter-mobile="0.7".
+ * These cascade down (an unset breakpoint inherits the next-wider value, then the base)
+ * and are re-resolved on resize so crossing a breakpoint swaps the margins live.
  *
  * Geometry is cached, not read live per frame. Each item's absolute document offset
  * (docTop) and height are measured once and progress is derived from window.scrollY
@@ -788,9 +792,43 @@ void main() {
     const ENTER_MARGIN = 0.9;   // track.top (fraction of vh) where progress = 0
     const LEAVE_MARGIN = 0.1;   // viewport line the track's BOTTOM meets where progress = 1
 
-    function marginAttr(el, name, fallback) {
-        const v = parseFloat(el.getAttribute(name));
-        return Number.isFinite(v) ? clamp01(v) : fallback;
+    // Responsive overrides, mirroring the Webflow breakpoints in styles.css. Each
+    // tier reads data-scrub-enter/-leave with the suffix appended (e.g.
+    // data-scrub-enter-mobile). Ordered narrowest-first so resolution cascades DOWN:
+    // at a given width we take the most specific tier that is both active AND set,
+    // falling back through the wider tiers to the un-suffixed base value. The base
+    // tier (suffix '', max Infinity) is always active, so it is the final fallback.
+    const TIERS = [
+        { suffix: '-mobile-portrait', max: 479 },  // Webflow mobile portrait
+        { suffix: '-mobile', max: 767 },           // Webflow mobile landscape
+        { suffix: '-tablet', max: 991 },           // Webflow tablet
+        { suffix: '', max: Infinity },             // base / desktop
+    ];
+
+    const viewportWidth = () =>
+        window.innerWidth || document.documentElement.clientWidth || 0;
+
+    // Resolve one margin attribute for the current viewport width. Walks the tiers
+    // narrowest-first, returning the first active tier that carries a finite value;
+    // otherwise the caller's fallback.
+    function marginAttr(el, name, fallback, width) {
+        for (let i = 0; i < TIERS.length; i++) {
+            const tier = TIERS[i];
+            if (width > tier.max) continue;         // tier not active at this width
+            const v = parseFloat(el.getAttribute(name + tier.suffix));
+            if (Number.isFinite(v)) return clamp01(v);
+        }
+        return fallback;
+    }
+
+    // (Re)resolve every item's enter/leave against the current viewport width, so a
+    // resize across a breakpoint swaps in the tier-specific margins.
+    function resolveMargins() {
+        const width = viewportWidth();
+        items.forEach((item) => {
+            item.enter = marginAttr(item.el, 'data-scrub-enter', ENTER_MARGIN, width);
+            item.leave = marginAttr(item.el, 'data-scrub-leave', LEAVE_MARGIN, width);
+        });
     }
 
     let items = [];   // refreshed per page
@@ -838,11 +876,13 @@ void main() {
     // Geometry may have changed (viewport resize, late reflow above a track, or a
     // process-scroll step toggling its body). Re-cache offsets, then repaint. rAF-
     // coalesced so a burst of ResizeObserver / resize events costs one layout read.
+    // A resize may also cross a breakpoint, so re-resolve the responsive margins too.
     function remeasure() {
         if (measuring) return;
         measuring = true;
         requestAnimationFrame(() => {
             measuring = false;
+            resolveMargins();
             measure();
             update();
         });
@@ -853,11 +893,12 @@ void main() {
         items = Array.from(els).map((el) => ({
             el,
             track: el.closest('[data-scrub-track]') || el.parentElement || el,
-            enter: marginAttr(el, 'data-scrub-enter', ENTER_MARGIN),
-            leave: marginAttr(el, 'data-scrub-leave', LEAVE_MARGIN),
+            enter: ENTER_MARGIN,
+            leave: LEAVE_MARGIN,
             docTop: 0,
             height: 0,
         }));
+        resolveMargins();
         measure();
         update();
     }

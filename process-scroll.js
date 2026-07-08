@@ -59,16 +59,21 @@
                     active = idx;
                     steps.forEach((step, i) => {
                         const on = i === idx;
+                        // The step's classes are pure state markers (the logo/list
+                        // collapse keys off them via the .is-scrollspy head rules).
                         step.classList.toggle('cc-active', on);
                         step.classList.toggle('cc-muted', !on);
-                        // Reveal the active step's body / dropdown copy and hide the
-                        // rest. The body's own cc-muted class is what drives its
-                        // display (.zoku-process-step_body.cc-muted { display:none }),
-                        // and the static markup only marks the initially-active step's
-                        // body visible — so it must be toggled in lock-step here or
-                        // only the first step ever shows its description as you scroll.
-                        const body = step.querySelector('.zoku-process-step_body');
-                        if (body) body.classList.toggle('cc-muted', !on);
+                        // The visible muting lives on Designer combos on the LEAF
+                        // elements — index/title dim to 40% opacity, body collapses
+                        // — so it stays editable in Webflow's Designer. Deliberately
+                        // NOT group opacity on the step: opacity < 1 composites the
+                        // whole step subtree offscreen, and iOS Safari can paint
+                        // that layer stale mid-scroll (a full-opacity ghost of the
+                        // title at its pre-reflow position).
+                        ['_index', '_title', '_body'].forEach((leaf) => {
+                            const el = step.querySelector('.zoku-process-step' + leaf);
+                            if (el) el.classList.toggle('cc-muted', !on);
+                        });
                     });
                 }
                 positionRail(idx);

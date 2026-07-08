@@ -161,12 +161,6 @@
     background-color: rgba(235, 235, 235, 0.7);
   }
 
-  /* The "shadow" — baked dark on .zoku-nav_scrim as background-image, so override
-   background-image (not the `background` shorthand). */
-  .zoku-nav.cc-light .zoku-nav_scrim {
-    background-image: linear-gradient(to bottom, rgba(235, 235, 235, 0.82) 0%, rgba(235, 235, 235, 0.48) 45%, rgba(235, 235, 235, 0) 100%);
-  }
-
   /* Testimonials rail edge-fade — the right-edge gradient
    (source .zoku-testimonials-rail_viewport::after) is baked dark on the
    Designer pseudo; on the light rail (.cc-light) it must dissolve trailing
@@ -186,11 +180,26 @@
     height: var(--zoku-process-progress-height, 0px);
   }
 
+  /* Process step muting lives in DESIGNER combos, not here: process-scroll.js
+   toggles cc-muted on the leaf elements (_index/_title → opacity 40%, _body →
+   display none). It must never come back as group opacity on the step itself —
+   opacity < 1 composites the whole step subtree offscreen, and iOS Safari can
+   paint that layer stale mid-scroll (a full-opacity ghost of the title at its
+   pre-reflow position — the mobile-Safari "duplicate step" artifact). */
+
   /* Scroll-spy collapse — when process-scroll.js arms a section (.is-scrollspy),
    muted steps also hide their logo tiles and sub-lists (no-JS keeps all visible). */
   .zoku-process.is-scrollspy .zoku-process-step.cc-muted .zoku-process-step_logos,
   .zoku-process.is-scrollspy .zoku-process-step.cc-muted .zoku-process-step_list {
     display: none;
+  }
+
+  /* iOS Safari: the step list reflows (bodies toggling display) during async
+   momentum scroll; promote it to its own compositing layer so WebKit repaints
+   the whole list as a unit instead of leaving stale page tiles behind. Keyed
+   on the runtime .is-scrollspy state, so it can't be a Designer style. */
+  .zoku-process.is-scrollspy .zoku-process_list {
+    transform: translateZ(0);
   }
 
   /* Resources filter dropdown (portfolio / resources index pages) — the pill is a
@@ -401,6 +410,10 @@
    category doesn't match the active [data-filter] button; this JS-state class
    isn't something Webflow's Designer can express, so its collapse lives here. */
 .cc-filtered-out { display: none !important; }
+
+  .zoku-resources_list .w-dyn-item:last-child .zoku-resources_divider {
+    display: none;
+  }
 </style>
 
 <!-- Site Settings → Custom Code → Footer Code -->
@@ -410,6 +423,6 @@
      serves them (3.15.0, plus SplitText / Draggable / InertiaPlugin) on every page. -->
 <script src="https://cdn.jsdelivr.net/npm/smooothy@0.0.35/dist/smooothy.min.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/@barba/core@2.10.3/dist/barba.umd.js" defer></script>
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.3.3/zoku-core.js" defer></script>
+<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.3.5/zoku-core.js" defer></script>
 <!-- suppress GSAP trigger warnings -->
 <script>window.addEventListener('load',()=>window.gsap&&gsap.config({nullTargetWarn:false}));</script>

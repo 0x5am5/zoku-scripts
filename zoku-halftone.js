@@ -62,7 +62,8 @@
  *                           lavender, shadows stay deep violet). The glow trails the
  *                           pointer with an eased lag and fades out on leave.
  *   data-halftone-hover-radius  Bloom radius as a fraction of wrapper width (default: 0.5)
- *   data-halftone-hover-color   Glow tint as #rrggbb (default: #c88dfb — brand purple)
+ *   data-halftone-hover-color   Shadow tint as #rrggbb (default: #c88dfb — deep brand purple)
+ *   data-halftone-hover-color2  Highlight tint as #rrggbb (default: #e2b0ff — pale lavender)
  *   data-halftone-hover-base    Whole-area tint floor while hovering, 0–1 (default: 0.4)
  *
  * ── Public API ──────────────────────────────────────────────────────────────────
@@ -117,7 +118,8 @@ uniform float srcAspect;
 uniform vec2 hoverPos;       // eased pointer position in canvas UV (y-up)
 uniform float hoverStrength; // eased hover presence, 0 (idle) – 1 (hovering)
 uniform float hoverRadius;   // glow radius in canvas-width units
-uniform vec3 hoverColor;     // base holographic tint
+uniform vec3 hoverColor;     // holographic tint for the shadows (deep shade)
+uniform vec3 hoverColor2;    // holographic tint for the highlights (pale shade)
 uniform float hoverBase;     // whole-area tint floor while hovering, 0 (off) – 1 (full)
 
 out vec4 outColor;
@@ -195,7 +197,9 @@ void main() {
     prox *= prox;                            // sharp bloom around the pointer
     float glow = mix(hoverBase, 1.0, prox);  // floor tints everywhere, ramps to full at cursor
     float luma = getLuma(rgb);
-    vec3 holo = mix(hoverColor * 0.25, mix(hoverColor, vec3(1.0), 0.5), luma);
+    // Two distinct purples — shadows sink into the deep hoverColor, highlights
+    // bloom into the paler, slightly pinker hoverColor2.
+    vec3 holo = mix(hoverColor * 0.4, hoverColor2, luma);
     rgb = mix(rgb, holo, glow * hoverStrength);
   }
 
@@ -221,8 +225,10 @@ void main() {
     const HOVER_FADE_IN_RATE = 7;
     const HOVER_FADE_OUT_RATE = 2.5;
 
-    /** Default hover tint — Zoku brand purple (#c88dfb). */
+    /** Default hover tints — deep brand purple (#c88dfb) for shadows, a paler,
+     *  slightly pinker lavender (#e2b0ff) for highlights. */
     const HOVER_COLOR_DEFAULT = [200 / 255, 141 / 255, 251 / 255];
+    const HOVER_COLOR2_DEFAULT = [226 / 255, 176 / 255, 255 / 255];
 
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
@@ -261,6 +267,7 @@ void main() {
             hover: el.hasAttribute('data-halftone-hover'),
             hoverRadius: clamp(numAttr(el, 'hover-radius', 0.5), 0.05, 2),
             hoverColor: parseHexColor(el.getAttribute('data-halftone-hover-color'), HOVER_COLOR_DEFAULT),
+            hoverColor2: parseHexColor(el.getAttribute('data-halftone-hover-color2'), HOVER_COLOR2_DEFAULT),
             hoverBase: clamp(numAttr(el, 'hover-base', 0.4), 0, 1),
         };
     }
@@ -396,6 +403,7 @@ void main() {
                 hoverStrength: gl.getUniformLocation(program, 'hoverStrength'),
                 hoverRadius: gl.getUniformLocation(program, 'hoverRadius'),
                 hoverColor: gl.getUniformLocation(program, 'hoverColor'),
+                hoverColor2: gl.getUniformLocation(program, 'hoverColor2'),
                 hoverBase: gl.getUniformLocation(program, 'hoverBase'),
             };
             return true;
@@ -431,6 +439,7 @@ void main() {
             gl.uniform1f(u.hoverStrength, hov ? hov.s : 0);
             gl.uniform1f(u.hoverRadius, inst.config.hoverRadius);
             gl.uniform3f(u.hoverColor, inst.config.hoverColor[0], inst.config.hoverColor[1], inst.config.hoverColor[2]);
+            gl.uniform3f(u.hoverColor2, inst.config.hoverColor2[0], inst.config.hoverColor2[1], inst.config.hoverColor2[2]);
             gl.uniform1f(u.hoverBase, inst.config.hoverBase);
             // Source aspect (cell for sprites, natural size for stills) drives the cover crop.
             let sw = 1, sh = 1;

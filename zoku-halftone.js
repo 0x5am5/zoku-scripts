@@ -55,13 +55,15 @@
  *                           Frame is set externally via ZokuHalftone.setProgress(el, 0–1);
  *                           pair with assets/scripts/scroll-scrub.js.
  *   data-halftone-eager     Marker — render immediately instead of lazily on scroll-in.
- *   data-halftone-hover     Marker — holographic pointer glow. Dots near the cursor
- *                           tint towards the hover colour, with the tint's luminance
- *                           following the source's white value (highlights go bright
+ *   data-halftone-hover     Marker — holographic pointer glow. The whole wrapper
+ *                           tints towards the hover colour while hovering, blooming
+ *                           to full intensity around the cursor. The tint's luminance
+ *                           follows the source's white value (highlights go bright
  *                           lavender, shadows stay deep violet). The glow trails the
  *                           pointer with an eased lag and fades out on leave.
- *   data-halftone-hover-radius  Glow radius as a fraction of wrapper width (default: 0.5)
+ *   data-halftone-hover-radius  Bloom radius as a fraction of wrapper width (default: 0.5)
  *   data-halftone-hover-color   Glow tint as #rrggbb (default: #c88dfb — brand purple)
+ *   data-halftone-hover-base    Whole-area tint floor while hovering, 0–1 (default: 0.4)
  *
  * ── Public API ──────────────────────────────────────────────────────────────────
  *   window.ZokuHalftone.setProgress(el, p)   Set a scrubbed sprite's progress (0–1).
@@ -116,6 +118,7 @@ uniform vec2 hoverPos;       // eased pointer position in canvas UV (y-up)
 uniform float hoverStrength; // eased hover presence, 0 (idle) – 1 (hovering)
 uniform float hoverRadius;   // glow radius in canvas-width units
 uniform vec3 hoverColor;     // base holographic tint
+uniform float hoverBase;     // whole-area tint floor while hovering, 0 (off) – 1 (full)
 
 out vec4 outColor;
 
@@ -180,15 +183,17 @@ void main() {
   vec4 sampledColor = texture(tex, fitUV(sampleUV));
   vec3 rgb = sampledColor.rgb;
 
-  // 6. Holographic hover glow — dots near the pointer shift towards hoverColor,
-  // the tint's luminance following the source's white value: highlights bloom
+  // 6. Holographic hover glow — the whole wrapper tints towards hoverColor while
+  // hovering (a hoverBase floor), blooming to full intensity around the pointer.
+  // The tint's luminance follows the source's white value: highlights bloom
   // towards a pale lavender, shadows sink into deep violet. sampleUV is the cell
   // centre in CANVAS space (pre-fitUV), matching hoverPos; scaling y by the
   // aspect ratio keeps the falloff circular on non-square wrappers.
   if (hoverStrength > 0.001) {
     vec2 offset = (sampleUV - hoverPos) * vec2(1.0, aspectRatio);
-    float glow = 1.0 - smoothstep(0.0, hoverRadius, length(offset));
-    glow *= glow;
+    float prox = 1.0 - smoothstep(0.0, hoverRadius, length(offset));
+    prox *= prox;                            // sharp bloom around the pointer
+    float glow = mix(hoverBase, 1.0, prox);  // floor tints everywhere, ramps to full at cursor
     float luma = getLuma(rgb);
     vec3 holo = mix(hoverColor * 0.25, mix(hoverColor, vec3(1.0), 0.5), luma);
     rgb = mix(rgb, holo, glow * hoverStrength);
@@ -256,6 +261,7 @@ void main() {
             hover: el.hasAttribute('data-halftone-hover'),
             hoverRadius: clamp(numAttr(el, 'hover-radius', 0.5), 0.05, 2),
             hoverColor: parseHexColor(el.getAttribute('data-halftone-hover-color'), HOVER_COLOR_DEFAULT),
+            hoverBase: clamp(numAttr(el, 'hover-base', 0.4), 0, 1),
         };
     }
 
@@ -390,6 +396,7 @@ void main() {
                 hoverStrength: gl.getUniformLocation(program, 'hoverStrength'),
                 hoverRadius: gl.getUniformLocation(program, 'hoverRadius'),
                 hoverColor: gl.getUniformLocation(program, 'hoverColor'),
+                hoverBase: gl.getUniformLocation(program, 'hoverBase'),
             };
             return true;
         }
@@ -424,6 +431,7 @@ void main() {
             gl.uniform1f(u.hoverStrength, hov ? hov.s : 0);
             gl.uniform1f(u.hoverRadius, inst.config.hoverRadius);
             gl.uniform3f(u.hoverColor, inst.config.hoverColor[0], inst.config.hoverColor[1], inst.config.hoverColor[2]);
+            gl.uniform1f(u.hoverBase, inst.config.hoverBase);
             // Source aspect (cell for sprites, natural size for stills) drives the cover crop.
             let sw = 1, sh = 1;
             if (inst.sprite) { sw = inst.sprite.cellW; sh = inst.sprite.cellH; }

@@ -64,24 +64,14 @@
             const setActive = (idx) => {
                 if (idx !== active) {
                     active = idx;
-                    steps.forEach((step, i) => {
-                        const on = i === idx;
-                        // The step's classes are pure state markers (the logo/list
-                        // collapse keys off them via the .is-scrollspy head rules).
-                        step.classList.toggle('cc-active', on);
-                        step.classList.toggle('cc-muted', !on);
-                        // The visible muting lives on Designer combos on the LEAF
-                        // elements — index/title dim to 40% opacity, body collapses
-                        // — so it stays editable in Webflow's Designer. Deliberately
-                        // NOT group opacity on the step: opacity < 1 composites the
-                        // whole step subtree offscreen, and iOS Safari can paint
-                        // that layer stale mid-scroll (a full-opacity ghost of the
-                        // title at its pre-reflow position).
-                        ['data-process-step-index', 'data-process-step-title', 'data-process-step-body'].forEach((attr) => {
-                            const el = step.querySelector('[' + attr + ']');
-                            if (el) el.classList.toggle('cc-muted', !on);
-                        });
-                    });
+                    // cc-active on the open step is the single source of truth; the
+                    // whole reveal (index/title dim, body + logos/list collapse on the
+                    // others) cascades from it in CSS via `.is-scrollspy [data-process-
+                    // step]:not(.cc-active)` descendant rules. The dimming lands on the
+                    // leaves, never on the step: opacity < 1 on the step would composite
+                    // its subtree offscreen and iOS Safari can paint that layer stale
+                    // mid-scroll (a ghost of the title at its pre-reflow position).
+                    steps.forEach((step, i) => step.classList.toggle('cc-active', i === idx));
                 }
                 positionRail(idx);
             };

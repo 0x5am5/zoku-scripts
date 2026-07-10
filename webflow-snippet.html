@@ -180,17 +180,30 @@
     height: var(--zoku-process-progress-height, 0px);
   }
 
-  /* Process step muting lives in DESIGNER combos, not here: process-scroll.js
-   toggles cc-muted on the leaf elements (_index/_title → opacity 40%, _body →
-   display none). It must never come back as group opacity on the step itself —
-   opacity < 1 composites the whole step subtree offscreen, and iOS Safari can
-   paint that layer stale mid-scroll (a full-opacity ghost of the title at its
-   pre-reflow position — the mobile-Safari "duplicate step" artifact). */
+  /* Process step scroll-spy muting — process-scroll.js adds cc-active to the one
+   open [data-process-step]; every other step is muted via :not(.cc-active). All
+   of it is gated behind .is-scrollspy so a no-JS page shows every step in full.
+   These are descendant + attribute + JS-state selectors, so they can't be
+   Designer classes and must live in this custom-code embed.
 
-  /* Scroll-spy collapse — when process-scroll.js arms a section (.is-scrollspy),
-   muted steps also hide their logo tiles and sub-lists (no-JS keeps all visible). */
-  .zoku-process.is-scrollspy .zoku-process-step.cc-muted .zoku-process-step_logos,
-  .zoku-process.is-scrollspy .zoku-process-step.cc-muted .zoku-process-step_list {
+   The dimming opacity lands on the index/title LEAVES, never on the step or a
+   wrapper that contains the collapsing body: opacity < 1 on such a subtree
+   composites it offscreen and iOS Safari can paint that layer stale mid-scroll
+   (a ghost of the title at its pre-reflow position — the "duplicate step"
+   artifact). Muted steps also drop their logo tiles / sub-lists; the active step
+   keeps its natural flex/grid display, so nothing needs restoring. */
+  .zoku-process.is-scrollspy [data-process-step]:not(.cc-active) .zoku-process-step_index,
+  .zoku-process.is-scrollspy [data-process-step]:not(.cc-active) .zoku-process-step_title {
+    opacity: 0.4;
+  }
+  .zoku-process.is-scrollspy [data-process-step]:not(.cc-active) .zoku-process-step_body {
+    display: none;
+  }
+  .zoku-process.is-scrollspy [data-process-step]:not(.cc-active) {
+    border-color: color-mix(in srgb, var(--zoku-mode-stroke) 40%, transparent);
+  }
+  .zoku-process.is-scrollspy [data-process-step]:not(.cc-active) .zoku-process-step_logos,
+  .zoku-process.is-scrollspy [data-process-step]:not(.cc-active) .zoku-process-step_list {
     display: none;
   }
 
@@ -424,6 +437,10 @@
   .zoku-resources-featured .zoku-article-card-item:first-child .zoku-article-card .zoku-article-card_media.cc-featured {
     flex: 0 0 46%;
   }
+
+.cc-light .zoku-button.cc-ghost {
+    background-color: #ebebeb4d;
+  }
 </style>
 
 <!-- Site Settings → Custom Code → Footer Code -->
@@ -433,6 +450,6 @@
      serves them (3.15.0, plus SplitText / Draggable / InertiaPlugin) on every page. -->
 <script src="https://cdn.jsdelivr.net/npm/smooothy@0.0.35/dist/smooothy.min.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/@barba/core@2.10.3/dist/barba.umd.js" defer></script>
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.3.11/zoku-core.js" defer></script>
+<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.3.12/zoku-core.js" defer></script>
 <!-- suppress GSAP trigger warnings -->
 <script>window.addEventListener('load',()=>window.gsap&&gsap.config({nullTargetWarn:false}));</script>

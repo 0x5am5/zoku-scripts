@@ -33,10 +33,13 @@
  * ── Attributes (on the wrapper element) ─────────────────────────────────────────
  *   data-halftone           Marker — required. The effect reads the wrapper's child <img>.
  *   data-halftone-type      image | sprite | auto   (default: auto — detect a sprite grid)
- *   data-halftone-fit       fill | cover   (default: fill)
+ *   data-halftone-fit       fill | cover | contain   (default: fill)
  *                           cover scales/crops the source to fill the wrapper while
  *                           preserving aspect (like object-fit: cover). Use for full-bleed
  *                           wrappers whose aspect differs from the source (e.g. the home hero).
+ *                           contain scales the source so ALL of it is visible (like
+ *                           object-fit: contain), dropping the dots in the letterbox bars
+ *                           so the wrapper's background fills the spare space.
  *   data-halftone-density   Grid cells across X (5–1000)     (default: 260)
  *   data-halftone-cell      Target dot pitch in CSS px       (default: off)
  *                           When set, density is DERIVED from the element's rendered width
@@ -113,7 +116,7 @@ uniform int Depth;
 uniform float aspectRatio;
 uniform bool sizeByLuma;
 uniform float fixedRadius;
-uniform bool coverFit;
+uniform int fitMode;         // 0 = fill, 1 = cover, 2 = contain
 uniform float srcAspect;
 uniform vec2 hoverPos;       // eased pointer position in canvas UV (y-up)
 uniform float hoverStrength; // eased hover presence, 0 (idle) – 1 (hovering)
@@ -129,16 +132,21 @@ float getLuma(vec3 color) {
   return dot(color, LUMA_WEIGHTS);
 }
 
-// object-fit: cover — scale the source UV so it fills the canvas, cropping the
-// overflowing axis (centred). Returns uv unchanged when coverFit is off (fill).
+// object-fit behaviour — cover scales the source UV so it fills the canvas
+// (cropping the overflowing axis, centred); contain scales it so the whole
+// source is visible (UVs run outside 0–1 in the spare bars, which main()
+// discards). Returns uv unchanged for fill.
 vec2 fitUV(vec2 uv) {
-  if (!coverFit) return uv;
+  if (fitMode == 0) return uv;
   float canvasAspect = 1.0 / aspectRatio;   // aspectRatio = h/w → canvasAspect = w/h
   vec2 scale = vec2(1.0);
-  if (canvasAspect > srcAspect) {
-    scale.y = srcAspect / canvasAspect;      // canvas wider than source → crop top/bottom
+  // The same two scale factors serve both modes, applied on opposite branches:
+  // when the canvas is wider than the source, cover crops top/bottom (scale.y < 1)
+  // while contain letterboxes the sides (scale.x > 1) — and vice versa.
+  if ((canvasAspect > srcAspect) == (fitMode == 1)) {
+    scale.y = srcAspect / canvasAspect;
   } else {
-    scale.x = canvasAspect / srcAspect;      // canvas taller than source → crop sides
+    scale.x = canvasAspect / srcAspect;
   }
   return (uv - 0.5) * scale + 0.5;
 }
@@ -182,7 +190,14 @@ void main() {
 
   // 5. Sample at the cell centre for a uniform fill colour per circle.
   vec2 sampleUV = (cellPos + 0.5) / gridCount;
-  vec4 sampledColor = texture(tex, fitUV(sampleUV));
+  vec2 srcUV = fitUV(sampleUV);
+  // Contain letterboxing — a cell whose centre lies outside the source has no
+  // colour to show (CLAMP_TO_EDGE would smear the edge pixels across the bars);
+  // drop it so the wrapper background fills the spare space.
+  if (fitMode == 2 && (srcUV.x < 0.0 || srcUV.x > 1.0 || srcUV.y < 0.0 || srcUV.y > 1.0)) {
+    discard;
+  }
+  vec4 sampledColor = texture(tex, srcUV);
   vec3 rgb = sampledColor.rgb;
 
   // 6. Holographic hover glow — the whole wrapper tints towards hoverColor while
@@ -252,7 +267,7 @@ void main() {
     function readConfig(el) {
         return {
             type: el.getAttribute('data-halftone-type') || 'auto',   // image | sprite | auto
-            fit: el.getAttribute('data-halftone-fit') === 'cover' ? 'cover' : 'fill', // object-fit behaviour
+            fit: /^(cover|contain)$/.test(el.getAttribute('data-halftone-fit')) ? el.getAttribute('data-halftone-fit') : 'fill', // object-fit behaviour
             density: clamp(numAttr(el, 'density', 260), 5, 1000),
             cell: Math.max(0, numAttr(el, 'cell', 0)),                // >0 = constant dot pitch
             radius: clamp(numAttr(el, 'radius', 0.47), 0, 0.5),
@@ -397,7 +412,7 @@ void main() {
                 aspectRatio: gl.getUniformLocation(program, 'aspectRatio'),
                 sizeByLuma: gl.getUniformLocation(program, 'sizeByLuma'),
                 fixedRadius: gl.getUniformLocation(program, 'fixedRadius'),
-                coverFit: gl.getUniformLocation(program, 'coverFit'),
+                fitMode: gl.getUniformLocation(program, 'fitMode'),
                 srcAspect: gl.getUniformLocation(program, 'srcAspect'),
                 hoverPos: gl.getUniformLocation(program, 'hoverPos'),
                 hoverStrength: gl.getUniformLocation(program, 'hoverStrength'),
@@ -433,7 +448,7 @@ void main() {
             gl.uniform1f(u.aspectRatio, h / w);
             gl.uniform1i(u.sizeByLuma, inst.config.luma ? 1 : 0);
             gl.uniform1f(u.fixedRadius, inst.config.radius);
-            gl.uniform1i(u.coverFit, inst.config.fit === 'cover' ? 1 : 0);
+            gl.uniform1i(u.fitMode, inst.config.fit === 'cover' ? 1 : inst.config.fit === 'contain' ? 2 : 0);
             const hov = inst.hover;
             gl.uniform2f(u.hoverPos, hov ? hov.x : 0.5, hov ? hov.y : 0.5);
             gl.uniform1f(u.hoverStrength, hov ? hov.s : 0);
@@ -441,7 +456,7 @@ void main() {
             gl.uniform3f(u.hoverColor, inst.config.hoverColor[0], inst.config.hoverColor[1], inst.config.hoverColor[2]);
             gl.uniform3f(u.hoverColor2, inst.config.hoverColor2[0], inst.config.hoverColor2[1], inst.config.hoverColor2[2]);
             gl.uniform1f(u.hoverBase, inst.config.hoverBase);
-            // Source aspect (cell for sprites, natural size for stills) drives the cover crop.
+            // Source aspect (cell for sprites, natural size for stills) drives the cover/contain fit.
             let sw = 1, sh = 1;
             if (inst.sprite) { sw = inst.sprite.cellW; sh = inst.sprite.cellH; }
             else if (inst.still) { sw = inst.still.naturalWidth; sh = inst.still.naturalHeight; }

@@ -1874,11 +1874,11 @@
         const getNavHeight = () => (nav ? nav.getBoundingClientRect().height : 0);
 
         sections.forEach((section) => {
-            const steps = Array.from(section.querySelectorAll('.zoku-process-step'));
+            const steps = Array.from(section.querySelectorAll('[data-process-step]'));
             if (!steps.length) return;
 
-            const rail = section.querySelector('.zoku-process_rail');
-            const progress = section.querySelector('.zoku-process_rail-progress');
+            const rail = section.querySelector('[data-process-rail]');
+            const progress = section.querySelector('[data-process-rail-progress]');
 
             // Flag the root so the muted body/logos hide only when JS is driving it,
             // keeping all content visible as a no-JS fallback.
@@ -1917,8 +1917,8 @@
                         // whole step subtree offscreen, and iOS Safari can paint
                         // that layer stale mid-scroll (a full-opacity ghost of the
                         // title at its pre-reflow position).
-                        ['_index', '_title', '_body'].forEach((leaf) => {
-                            const el = step.querySelector('.zoku-process-step' + leaf);
+                        ['data-process-step-index', 'data-process-step-title', 'data-process-step-body'].forEach((attr) => {
+                            const el = step.querySelector('[' + attr + ']');
                             if (el) el.classList.toggle('cc-muted', !on);
                         });
                     });

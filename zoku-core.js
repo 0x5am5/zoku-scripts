@@ -1344,9 +1344,6 @@
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const hasGsap = typeof window.gsap !== 'undefined';
 
-    // Resting rotation of the open panel — the card sits straight.
-    const REST_ROTATION = 0;
-
     // State lives on the [open] attribute, which works on any element — the
     // static build uses native <details>, but Webflow re-imports these rows as
     // <div>s (it can't represent <details>/<summary>), so we can't rely on the
@@ -1359,14 +1356,6 @@
         else item.removeAttribute('open');
     };
 
-    // The open panel gently trails the pointer, magnetically, capped at this
-    // many px on each axis so the follow stays subtle.
-    const MAGNET_MAX = 50;
-
-    // On top of the follow, the panel rotates a touch counter-clockwise as the
-    // pointer moves right across the section — capped so the nudge stays subtle.
-    const ROTATE_MAX = 5;
-
     scopes.forEach((scope) => {
         const items = Array.from(scope.querySelectorAll('.zoku-portfolio-item'))
             .filter((el) => !el.classList.contains('cc-static'));
@@ -1374,15 +1363,8 @@
 
         const useMotion = !prefersReducedMotion && hasGsap;
 
-        // The currently open panel and its pointer-follow tweens. quickTo gives
-        // us a re-triggerable eased tween per axis, which is what makes the
-        // follow feel smooth/magnetic rather than snapping to the cursor.
-        let activePanel = null;
-        let followX = null;
-        let followY = null;
-        let followRot = null;
-
-        // Slide the panel up from below as it fades in, settling flat.
+        // Slide the panel up from below as it fades in. Hover polish (the
+        // gentle artwork zoom) is pure CSS on .zoku-portfolio-item_art.
         const revealPanel = (item) => {
             const panel = item.querySelector('.zoku-portfolio-item_panel');
             if (!panel) return;
@@ -1397,43 +1379,11 @@
                 return;
             }
 
-            // Reveal slides on yPercent so the magnetic offset (x/y in px) owns
-            // a separate transform channel and the two never fight.
             window.gsap.fromTo(panel,
-                { yPercent: 40, rotation: REST_ROTATION, opacity: 0, transformOrigin: '50% 50%' },
-                { yPercent: 0, rotation: REST_ROTATION, opacity: 1, duration: 0.8, ease: 'power3.out' }
+                { yPercent: 40, opacity: 0 },
+                { yPercent: 0, opacity: 1, duration: 0.8, ease: 'power3.out' }
             );
-
-            // Clear any leftover offset from a previous open, then point the
-            // follow tweens at this panel.
-            window.gsap.set(panel, { x: 0, y: 0, rotation: REST_ROTATION });
-            activePanel = panel;
-            followX = window.gsap.quickTo(panel, 'x', { duration: 0.6, ease: 'power3.out' });
-            followY = window.gsap.quickTo(panel, 'y', { duration: 0.6, ease: 'power3.out' });
-            followRot = window.gsap.quickTo(panel, 'rotation', { duration: 0.6, ease: 'power3.out' });
         };
-
-        // Magnetic pointer-follow: map the cursor's position within the section
-        // to a small offset (±MAGNET_MAX) and ease the open panel toward it.
-        if (useMotion) {
-            const clamp = (v) => Math.max(-1, Math.min(1, v));
-            const refEl = scope.getBoundingClientRect ? scope : document.documentElement;
-            scope.addEventListener('mousemove', (e) => {
-                if (!activePanel || !followX) return;
-                const rect = refEl.getBoundingClientRect();
-                const nx = (e.clientX - (rect.left + rect.width / 2)) / (rect.width / 2);
-                const ny = (e.clientY - (rect.top + rect.height / 2)) / (rect.height / 2);
-                followX(clamp(nx) * MAGNET_MAX);
-                followY(clamp(ny) * MAGNET_MAX);
-                // Pointer right of centre (nx > 0) winds the panel
-                // counter-clockwise off its resting angle; left of centre eases it back.
-                if (followRot) followRot(REST_ROTATION - clamp(nx) * ROTATE_MAX);
-            });
-            scope.addEventListener('mouseleave', () => {
-                if (followX) { followX(0); followY(0); }
-                if (followRot) followRot(REST_ROTATION);
-            });
-        }
 
         const setActive = (idx) => {
             items.forEach((item, i) => {
@@ -1639,214 +1589,110 @@
 
 /* ==== card-deck.js ==== */
 /**
- * Card deck — bouncy hover-repel interaction for a cluster of cards.
+ * Card deck — staggered slide-in entrance for a cluster of cards.
  *
- * On hovering a card the others spring away from it along their radial vector
- * while the hovered card lifts forward (scales up, straightens, raised z-index).
- * Everything eases with a soft overshoot for a fluid, bouncy feel. Ported from
- * the home "results" deck and reused across the site.
- *
- * This single module now drives BOTH the generic data-attribute decks AND the
- * home results deck (via a legacy class-based shim — see init() below), so the
- * two never drift apart. Each deck can carry its own feel (repel distance,
- * spread/reset easing, disable breakpoint) via a per-deck options object.
+ * 2026-07-15: this module replaced the old bouncy hover-repel interaction.
+ * Decks no longer fan/rotate at rest and carry no hover behaviour — the cards
+ * rest in a neat, straight layout (the CSS owns that) and animate IN from the
+ * far right of the screen, staggered left to right, the first time the deck
+ * scrolls into view.
  *
  * Markup contract (data attributes only — never classes, per project JS rules):
  *   <div data-deck>
  *     <article data-deck-card>…</article>   ← one per card
  *   </div>
- * Multiple decks per page are supported. Each card's *resting* transform
- * (rotation + translate from CSS — e.g. the fanned catalyse cards) is read from
- * computed style at init, so no per-card config is needed; GSAP animates
- * relative to that base and returns to it on reset.
+ * Multiple decks per page are supported. Legacy option attributes from the
+ * hover-repel era (data-deck-repel, data-deck-min-width-disabled, …) are
+ * ignored, so older markup — including whatever Webflow still carries — keeps
+ * working with this bundle.
  *
- * Optional per-deck overrides via data attributes on the [data-deck] wrapper:
- *   data-deck-repel, data-deck-spread-duration, data-deck-spread-ease,
- *   data-deck-reset-duration, data-deck-reset-ease, data-deck-min-width-disabled.
- * Numeric ones fall back to the default if not a finite number.
+ * The home results deck is Webflow-owned markup that cannot be given data
+ * attributes from this repo, so it is wired by its structural classes
+ * (.zoku-home-results_cards / _card) — the same shim the hover-repel build used.
  *
- * Early-exits globally on reduced-motion; the mobile disable breakpoint is now
- * per-deck (default ≤767px, results ≤991px) so it is checked inside each deck.
+ * Each card's start offset is measured against the viewport's right edge, so
+ * every card genuinely begins beyond the screen no matter where its deck sits
+ * in the layout. Host sections must clip horizontal overflow while cards are
+ * parked offscreen (all current deck sections do — overflow hidden on
+ * .zoku-home-results / .zoku-unique / .zoku-catalyse / .zoku-means, and
+ * .section.cc-clip on the growth "things we do not do" section).
+ *
+ * Powered by GSAP + ScrollTrigger (global on every page). Early-exits under
+ * prefers-reduced-motion or missing GSAP, leaving the resting layout untouched.
  */
 (function () {
-  // Default deck feel — matches the original generic card-deck behaviour.
-  const DEFAULTS = {
-    repel: 64,                      // px — how far siblings ease away from the hovered card
-    spreadDuration: 0.4,
-    spreadEase: 'back.out(1.7)',
-    resetDuration: 0.4,
-    resetEase: 'power3.out',
-    minWidthDisabled: 767,          // px — decks flatten at/below this width
-  };
+  const DURATION = 0.9;
+  const EASE = 'power3.out';
+  const STAGGER = 0.12;
+  // Extra px beyond the viewport edge so box-shadows/borders never peek in.
+  const OVERSHOOT = 40;
 
-  // Shared across every deck — never varied per deck.
-  const LIFT = -16;                 // px — how far the hovered card rises (added to its base y)
-  const HOVER_SCALE = 1.05;
-  const SIBLING_SCALE = 0.97;
+  let decks = [];
 
   function init(scope) {
-    if (typeof gsap === 'undefined') return;
-    // Reduced-motion is a global opt-out — no deck animates. (The mobile
-    // breakpoint is now per-deck, so it is checked inside initDeck.)
+    if (typeof gsap === 'undefined' || typeof ScrollTrigger === 'undefined') return;
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    gsap.registerPlugin(ScrollTrigger);
 
     const root = scope || document;
+    const found = [];
 
-    // Generic data-attribute decks. Options are read leniently off the wrapper,
-    // falling back to DEFAULTS (see readOptions).
     root.querySelectorAll('[data-deck]').forEach((wrap) => {
-        initDeck(wrap, '[data-deck-card]', readOptions(wrap));
+        found.push(Array.from(wrap.querySelectorAll('[data-deck-card]')));
     });
 
-    // Home results deck — legacy class-based hook. This markup lives in Webflow,
-    // which owns it and CANNOT be given data attributes from this repo, so we
-    // wire it by its own structural classes instead. Any results cards wrap not
-    // already promoted to a [data-deck] is initialised with the results preset.
-    // (The old results.js hardcoded a rotation table `[-4.59, 0, 3.88, 0, 0]`;
-    // that was dropped in favour of readBase() reading each card's resting
-    // rotation from computed style — the CSS owns the fan tilt, so it yields the
-    // same values and stays correct if the fan ever changes.)
+    // Home results deck — legacy class-based hook (Webflow owns this markup).
     root.querySelectorAll('.zoku-home-results_cards').forEach((wrap) => {
-        if (wrap.matches('[data-deck]')) return; // already handled above
-        initDeck(wrap, '.zoku-home-results_card', {
-            repel: 56,
-            spreadDuration: 0.7,
-            spreadEase: 'back.out(1.7)',
-            resetDuration: 0.85,
-            resetEase: 'elastic.out(1, 0.65)',
-            minWidthDisabled: 991,
+        if (wrap.matches('[data-deck]')) return; // already collected above
+        found.push(Array.from(wrap.querySelectorAll('.zoku-home-results_card')));
+    });
+
+    found.forEach((cards) => {
+        if (cards.length === 0) return;
+
+        // Distance each card travels: resting spot → fully beyond the
+        // viewport's right edge. Measured before any transform is applied.
+        const offsets = cards.map((card) => {
+            const rect = card.getBoundingClientRect();
+            return Math.max(0, window.innerWidth - rect.left) + OVERSHOOT;
         });
+
+        cards.forEach((card, i) => {
+            gsap.set(card, { x: offsets[i], willChange: 'transform' });
+        });
+
+        const tween = gsap.to(cards, {
+            x: 0,
+            duration: DURATION,
+            ease: EASE,
+            stagger: STAGGER,
+            paused: true,
+            // Hand the cards back to the CSS once settled — no lingering
+            // transform/will-change on the resting layout.
+            onComplete: () => gsap.set(cards, { clearProps: 'transform,willChange' }),
+        });
+
+        const trigger = ScrollTrigger.create({
+            trigger: cards[0].parentElement || cards[0],
+            start: 'top 80%',
+            once: true,
+            onEnter: () => tween.play(),
+        });
+
+        decks.push({ trigger, tween, cards });
     });
   }
 
-  // Read per-deck overrides from data attributes, falling back to DEFAULTS.
-  // Numeric values are validated with Number.isFinite (house pattern — see
-  // scroll-scrub.js `marginAttr`); missing/blank string easing keeps the default.
-  function readOptions(wrap) {
-    const num = (attr, fallback) => {
-        const v = parseFloat(wrap.getAttribute(attr));
-        return Number.isFinite(v) ? v : fallback;
-    };
-    const str = (attr, fallback) => {
-        const v = wrap.getAttribute(attr);
-        return v && v.trim() ? v.trim() : fallback;
-    };
-    return {
-        repel: num('data-deck-repel', DEFAULTS.repel),
-        spreadDuration: num('data-deck-spread-duration', DEFAULTS.spreadDuration),
-        spreadEase: str('data-deck-spread-ease', DEFAULTS.spreadEase),
-        resetDuration: num('data-deck-reset-duration', DEFAULTS.resetDuration),
-        resetEase: str('data-deck-reset-ease', DEFAULTS.resetEase),
-        minWidthDisabled: num('data-deck-min-width-disabled', DEFAULTS.minWidthDisabled),
-    };
+  function destroy() {
+      decks.forEach(({ trigger, tween, cards }) => {
+          trigger.kill();
+          tween.kill();
+          gsap.set(cards, { clearProps: 'transform,willChange' });
+      });
+      decks = [];
   }
 
-  // Decompose a computed `transform` matrix into the resting rotation/offset so
-  // GSAP can animate relative to whatever tilt/translate the CSS gave the card.
-  function readBase(el) {
-      const t = getComputedStyle(el).transform;
-      if (!t || t === 'none') return { x: 0, y: 0, rotation: 0 };
-      const m = t.match(/matrix\(([^)]+)\)/);
-      if (!m) return { x: 0, y: 0, rotation: 0 };
-      const [a, b, , , tx, ty] = m[1].split(',').map(parseFloat);
-      return {
-          x: tx,
-          y: ty,
-          rotation: Math.round(Math.atan2(b, a) * (180 / Math.PI) * 100) / 100,
-      };
-  }
-
-  function initDeck(wrap, cardSelector, opts) {
-      const options = { ...DEFAULTS, ...opts };
-
-      // Hover-repel is desktop + tablet only — disabled below this deck's
-      // breakpoint where the grid stacks/scrolls with no resting fan to repel.
-      if (window.matchMedia(`(max-width: ${options.minWidthDisabled}px)`).matches) return;
-
-      const cards = Array.from(wrap.querySelectorAll(cardSelector));
-      if (cards.length === 0) return;
-
-      // Capture resting transform + untransformed layout centre per card before
-      // GSAP touches anything (transforms don't affect offsetLeft/Top, so the
-      // repel vector stays stable regardless of the live transform).
-      const bases = cards.map((card) => {
-          const base = readBase(card);
-          base.cx = card.offsetLeft + card.offsetWidth / 2;
-          base.cy = card.offsetTop + card.offsetHeight / 2;
-          return base;
-      });
-
-      cards.forEach((card, i) => {
-          gsap.set(card, {
-              x: bases[i].x,
-              y: bases[i].y,
-              rotation: bases[i].rotation,
-              transformOrigin: '50% 50%',
-              willChange: 'transform',
-              zIndex: i + 1,
-          });
-      });
-
-      const spreadTo = (card, vars) =>
-          gsap.to(card, { duration: options.spreadDuration, ease: options.spreadEase, overwrite: 'auto', ...vars });
-
-      function focus(activeIndex) {
-          const active = bases[activeIndex];
-
-          cards.forEach((card, i) => {
-              const base = bases[i];
-
-              if (i === activeIndex) {
-                  gsap.set(card, { zIndex: 50 });
-                  spreadTo(card, { x: base.x, y: base.y + LIFT, rotation: 0, scale: HOVER_SCALE });
-                  return;
-              }
-
-              // Push this sibling away along the vector from the hovered card.
-              let dx = base.cx - active.cx;
-              let dy = base.cy - active.cy;
-              const dist = Math.hypot(dx, dy) || 1;
-              dx /= dist;
-              dy /= dist;
-
-              gsap.set(card, { zIndex: i + 1 });
-              spreadTo(card, {
-                  x: base.x + dx * options.repel,
-                  y: base.y + dy * options.repel * 0.55,
-                  rotation: base.rotation + dx * 2,
-                  scale: SIBLING_SCALE,
-              });
-          });
-      }
-
-      function reset() {
-          // Note: z-index is intentionally left untouched here — the last-hovered
-          // card keeps its raised stacking at rest (otherwise it would snap back
-          // behind overlapping siblings and "jump"). focus() reassigns every
-          // card's z-index on the next hover, so this stays consistent.
-          cards.forEach((card, i) => {
-              gsap.to(card, {
-                  x: bases[i].x,
-                  y: bases[i].y,
-                  rotation: bases[i].rotation,
-                  scale: 1,
-                  duration: options.resetDuration,
-                  ease: options.resetEase,
-                  overwrite: 'auto',
-              });
-          });
-      }
-
-      cards.forEach((card, i) => {
-          card.addEventListener('mouseenter', () => focus(i));
-      });
-
-      // Reset when the cursor leaves the whole cluster (lets the pointer glide
-      // between overlapping cards without snapping back mid-move).
-      wrap.addEventListener('mouseleave', reset);
-  }
-
-  if (window.ZokuPage) window.ZokuPage.register({ init });
+  if (window.ZokuPage) window.ZokuPage.register({ init, destroy });
   else init(document);
 })();
 

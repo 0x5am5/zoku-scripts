@@ -1,6 +1,6 @@
 <!--
   Zoku — Webflow custom code. MIRROR of the live Site Settings → Custom Code
-  blocks, synchronised from Webflow (get_site_freeform_code) on 2026-07-05.
+  blocks, synchronised from Webflow (get_site_freeform_code) on 2026-07-15.
   Webflow is the source of truth — after editing the live blocks, re-sync this
   file rather than the other way round.
 
@@ -23,6 +23,11 @@
 <script>
   document.documentElement.classList.add('zoku-js');
 </script>
+
+<!-- iOS <=18 Safari + Android chrome tint. Safari 26+ (Liquid Glass) ignores
+   theme-color and instead samples the fixed .zoku-nav_tint strip's
+   background-color (see the tint rules in the style block below). -->
+<meta name="theme-color" content="#161616">
 
 <style>
   /* Pillars card-deck (runtime .cc-deck / .cc-pinned added by pillars.js) */
@@ -159,6 +164,18 @@
   .zoku-nav.cc-light .zoku-nav_menu:hover {
     border-color: rgba(22, 22, 22, 0.55);
     background-color: rgba(235, 235, 235, 0.7);
+  }
+
+  /* iOS status-bar tint strip — Safari 26+ (Liquid Glass) ignores theme-color
+   and samples the fixed .zoku-nav_tint strip's background-color to paint the
+   system status-bar zone. The strip follows nav-theme.js's .cc-light flip and
+   snaps back to dark while the (dark) menu drawer is open — JS-state
+   descendant selectors, so they live here. */
+  .zoku-nav.cc-light .zoku-nav_tint {
+    background-color: var(--_zoku-colour---bg-light);
+  }
+  .zoku-nav:is(.cc-menu-open, :has(.zoku-nav_menu[aria-expanded="true"])) .zoku-nav_tint {
+    background-color: var(--_zoku-colour---bg-primary);
   }
 
   /* Testimonials rail edge-fade — the right-edge gradient

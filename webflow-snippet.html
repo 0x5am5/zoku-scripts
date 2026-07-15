@@ -24,9 +24,10 @@
   document.documentElement.classList.add('zoku-js');
 </script>
 
-<!-- iOS <=18 Safari + Android chrome tint. Safari 26+ (Liquid Glass) ignores
-   theme-color and instead samples the fixed .zoku-nav_tint strip's
-   background-color (see the tint rules in the style block below). -->
+<!-- Chrome tint for iOS <=18 Safari + Android (Safari 26+ ignores theme-color).
+   NOTE: a .zoku-nav_tint sampling strip for Safari 26 status-bar tinting was
+   added and removed 2026-07-15 — the opaque band read as a shadow behind the
+   nav blur. Do not reintroduce a fixed opaque strip at the top edge. -->
 <meta name="theme-color" content="#161616">
 
 <style>
@@ -123,6 +124,22 @@
     content: '\2212';
   }
 
+  /* Portfolio artwork hover zoom (2026-07-15) — hovering the open panel gently
+   grows the flower art; the panel's overflow: hidden crops the growth. The
+   eased transition lives on the zoku-portfolio-item_art Designer class; this
+   descendant :hover rule has no Designer representation, so it lives here. */
+  .zoku-portfolio-item_panel:hover .zoku-portfolio-item_art {
+    transform: scale(1.04);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .zoku-portfolio-item_art {
+      transition: none;
+    }
+    .zoku-portfolio-item_panel:hover .zoku-portfolio-item_art {
+      transform: none;
+    }
+  }
+
   /* Hide the raw halftone source image until the WebGL canvas paints,
   so the still image / raw sprite sheet doesn't flash on load.
   .no-halftone is added by the shader when WebGL2 is unavailable. */
@@ -164,18 +181,6 @@
   .zoku-nav.cc-light .zoku-nav_menu:hover {
     border-color: rgba(22, 22, 22, 0.55);
     background-color: rgba(235, 235, 235, 0.7);
-  }
-
-  /* iOS status-bar tint strip — Safari 26+ (Liquid Glass) ignores theme-color
-   and samples the fixed .zoku-nav_tint strip's background-color to paint the
-   system status-bar zone. The strip follows nav-theme.js's .cc-light flip and
-   snaps back to dark while the (dark) menu drawer is open — JS-state
-   descendant selectors, so they live here. */
-  .zoku-nav.cc-light .zoku-nav_tint {
-    background-color: var(--_zoku-colour---bg-light);
-  }
-  .zoku-nav:is(.cc-menu-open, :has(.zoku-nav_menu[aria-expanded="true"])) .zoku-nav_tint {
-    background-color: var(--_zoku-colour---bg-primary);
   }
 
   /* Testimonials rail edge-fade — the right-edge gradient

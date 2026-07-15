@@ -74,7 +74,7 @@
      *
      * The pinned tag below is stamped from the repo-root VERSION file by
      * build.sh — do NOT edit it by hand; bump VERSION and run ./build.sh. */
-    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.3.12/zoku-halftone.js';
+    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.3.13/zoku-halftone.js';
     let halftoneLoaded = false;
     let halftoneLoading = false;
     const ensureHalftone = (scope) => {
@@ -340,6 +340,28 @@
         const nextWordmark = nextDoc.querySelector('.footer_wordmark');
         if (liveWordmark && nextWordmark && liveWordmark.className !== nextWordmark.className) {
             liveWordmark.className = nextWordmark.className;
+        }
+
+        // The footer links express light/dark the same way as the wordmark: dark
+        // pages stamp the variant combo class onto every link
+        // (`footer_link w-variant-84b5707f-0067-1a21-5745-1a239b984f4e`), light
+        // pages emit plain `footer_link` — and like everything else out here they
+        // stay frozen on the entry page's classes. Don't copy class lists
+        // pairwise (links also carry per-link combos like `cc-legal`, and counts
+        // could drift): mirror just the `w-variant-*` classes from the incoming
+        // links onto every live link, leaving other combo classes untouched.
+        const nextLink = nextDoc.querySelector('.footer_link');
+        if (nextLink) {
+            const nextVariants = Array.from(nextLink.classList)
+                .filter((c) => c.indexOf('w-variant-') === 0);
+            document.querySelectorAll('.footer_link').forEach((a) => {
+                Array.from(a.classList).forEach((c) => {
+                    if (c.indexOf('w-variant-') === 0 && nextVariants.indexOf(c) === -1) {
+                        a.classList.remove(c);
+                    }
+                });
+                nextVariants.forEach((c) => a.classList.add(c));
+            });
         }
     };
 

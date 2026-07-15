@@ -9,8 +9,8 @@
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const hasGsap = typeof window.gsap !== 'undefined';
 
-    // Resting tilt of the open panel — matches Figma 4340:26452.
-    const REST_ROTATION = -4;
+    // Resting rotation of the open panel — the card sits straight.
+    const REST_ROTATION = 0;
 
     // State lives on the [open] attribute, which works on any element — the
     // static build uses native <details>, but Webflow re-imports these rows as
@@ -29,7 +29,7 @@
     const MAGNET_MAX = 50;
 
     // On top of the follow, the panel rotates a touch counter-clockwise as the
-    // pointer moves right across the section — capped so it only ever nudges the tilt.
+    // pointer moves right across the section — capped so the nudge stays subtle.
     const ROTATE_MAX = 5;
 
     scopes.forEach((scope) => {
@@ -47,7 +47,7 @@
         let followY = null;
         let followRot = null;
 
-        // Slide the panel up from below as it fades in, settling into its tilt.
+        // Slide the panel up from below as it fades in, settling flat.
         const revealPanel = (item) => {
             const panel = item.querySelector('.zoku-portfolio-item_panel');
             if (!panel) return;
@@ -56,7 +56,7 @@
             panel.style.animation = 'none';
 
             if (!useMotion) {
-                // Fall back to the resting tilt with no motion.
+                // Fall back to the resting state with no motion.
                 panel.style.transform = '';
                 panel.style.opacity = '';
                 return;
@@ -90,8 +90,8 @@
                 const ny = (e.clientY - (rect.top + rect.height / 2)) / (rect.height / 2);
                 followX(clamp(nx) * MAGNET_MAX);
                 followY(clamp(ny) * MAGNET_MAX);
-                // Pointer right of centre (nx > 0) winds the panel further
-                // counter-clockwise off its resting tilt; left of centre eases it back.
+                // Pointer right of centre (nx > 0) winds the panel
+                // counter-clockwise off its resting angle; left of centre eases it back.
                 if (followRot) followRot(REST_ROTATION - clamp(nx) * ROTATE_MAX);
             });
             scope.addEventListener('mouseleave', () => {

@@ -77,10 +77,14 @@
 
         const hidden = { yPercent: 130, opacity: 0, scale: 1, transformOrigin: '50% 100%', willChange: 'transform, opacity' };
 
-        // Desktop card-deck deal-in: pin the whole section, then deal both cards in as
-        // the reader scrolls — card one lands by ~50%, then card two rises over it and
-        // pushes card one back into a dimmed shade. The section pin hides the brief
-        // empty stage. Returns a cleanup that resets the cards + stage.
+        // Desktop card-deck deal-in, two phases so the cards are already in motion
+        // on approach rather than waiting for the pin:
+        //   1. Card one deals in scrubbed across the approach — from the section top
+        //      crossing three-quarters of the way down the viewport to the pin point
+        //      — so it is fully landed when the pin engages.
+        //   2. The section pins and card two rises over card one, pushing it back
+        //      into a dimmed shade.
+        // Returns a cleanup that resets the cards + stage.
         function buildDeck(pinTarget) {
             const stage = section.querySelector('.zoku-home-pillars_cards');
             if (!stage) return null;
@@ -91,12 +95,26 @@
             // one in the DOM, so it naturally stacks in front.
             gsap.set([cardOne, cardTwo], hidden);
 
+            // Phase 1 — card one deals in on approach, landing exactly at the pin.
+            const intro = gsap.to(cardOne, {
+                yPercent: 0,
+                opacity: 1,
+                ease: 'power3.out',
+                scrollTrigger: {
+                    trigger: pinTarget,
+                    start: 'top 75%',
+                    end: () => 'top top+=' + navHeight(),
+                    scrub: 0.6,
+                    invalidateOnRefresh: true,
+                },
+            });
+
             const tl = gsap.timeline({
                 defaults: { ease: 'power3.out' },
                 scrollTrigger: {
                     trigger: pinTarget,
                     start: () => 'top top+=' + navHeight(),
-                    end: '+=140%',
+                    end: '+=80%',
                     scrub: 0.6,
                     pin: pinTarget,
                     pinSpacing: true,
@@ -109,14 +127,18 @@
                 },
             });
 
-            // 0 → 50%: card one deals into the resting front position.
-            tl.to(cardOne, { yPercent: 0, opacity: 1, duration: 0.5 }, 0);
-            // 50% → 90%: card two slides up into the front while card one is pushed
-            // back — lifted, scaled down and dimmed like a shade.
-            tl.to(cardTwo, { yPercent: 0, opacity: 1, duration: 0.4 }, 0.5);
-            tl.to(cardOne, { yPercent: -8, scale: 0.94, opacity: 0.5, duration: 0.4 }, 0.5);
+            // Phase 2 — after a short beat, card two slides up into the front while
+            // card one is pushed back — lifted, scaled down and dimmed like a shade.
+            // fromTo with immediateRender:false so card one's recorded start is its
+            // landed state, not the hidden set() above.
+            tl.to(cardTwo, { yPercent: 0, opacity: 1, duration: 0.7 }, 0.15);
+            tl.fromTo(cardOne,
+                { yPercent: 0, scale: 1, opacity: 1 },
+                { yPercent: -8, scale: 0.94, opacity: 0.5, duration: 0.7, immediateRender: false }, 0.15);
 
             return () => {
+                if (intro.scrollTrigger) intro.scrollTrigger.kill();
+                intro.kill();
                 stage.classList.remove('cc-deck');
                 gsap.set([cardOne, cardTwo], { clearProps: 'all' });
             };
@@ -142,9 +164,12 @@
         // Two phases so card one animates IN without leaving a tall empty box to
         // scroll past:
         //   1. As the cards box scrolls up into view (bottom → top), card one deals
-        //      in — the box fills as it rises, so there is no empty gap and the first
-        //      card is seen animating rather than sitting static.
-        //   2. The box then pins at the top and card two deals in over card one,
+        //      in — landing by the HALFWAY point of that travel, so it is visibly
+        //      gliding while the box crosses the lower quarter of the screen (a
+        //      full-travel scrub kept it below the fold / transparent until the box
+        //      was nearly at the top). Card two then starts rising behind it, its
+        //      frosted glass already overlapping card one before the pin engages.
+        //   2. The box pins at the top and card two finishes its rise over card one,
         //      pushing it back into the dimmed shade.
         mm.add('(max-width: 991px) and (prefers-reduced-motion: no-preference)', () => {
             const stage = section.querySelector('.zoku-home-pillars_cards');
@@ -153,13 +178,10 @@
             stage.classList.add('cc-deck');
             gsap.set([cardOne, cardTwo], hidden);
 
-            // Phase 1 — card one deals in across the box's travel from entering the
-            // viewport to reaching the top, so it is fully landed by the time the pin
-            // engages.
-            const intro = gsap.to(cardOne, {
-                yPercent: 0,
-                opacity: 1,
-                ease: 'power3.out',
+            // Phase 1 — card one lands by 50% of the approach; card two rises to
+            // yPercent 60 (frost over card one's lower band) across the second half.
+            const intro = gsap.timeline({
+                defaults: { ease: 'power3.out' },
                 scrollTrigger: {
                     trigger: stage,
                     start: 'top bottom',
@@ -168,16 +190,19 @@
                     invalidateOnRefresh: true,
                 },
             });
+            intro.to(cardOne, { yPercent: 0, opacity: 1, duration: 0.5 }, 0);
+            intro.to(cardTwo, { yPercent: 60, opacity: 1, duration: 0.5 }, 0.5);
 
-            // Phase 2 — pin the cards at the top; card two deals in over card one,
-            // which is pushed back. fromTo with immediateRender:false so this does
-            // not snap card one's start values before the pin scrubs in.
+            // Phase 2 — pin the cards at the top; card two completes its deal-in
+            // over card one, which is pushed back. fromTos with immediateRender:false
+            // and explicit starts matching phase 1's end values, so the handoff at
+            // the pin point is seamless in both scroll directions.
             const deck = gsap.timeline({
                 defaults: { ease: 'power3.out' },
                 scrollTrigger: {
                     trigger: stage,
                     start: () => 'top top+=' + navHeight(),
-                    end: '+=70%',
+                    end: '+=50%',
                     scrub: 0.6,
                     pin: stage,
                     pinSpacing: true,
@@ -187,7 +212,9 @@
                     invalidateOnRefresh: true,
                 },
             });
-            deck.to(cardTwo, { yPercent: 0, opacity: 1, duration: 0.5 }, 0);
+            deck.fromTo(cardTwo,
+                { yPercent: 60, opacity: 1 },
+                { yPercent: 0, duration: 0.5, immediateRender: false }, 0);
             deck.fromTo(cardOne,
                 { yPercent: 0, scale: 1, opacity: 1 },
                 { yPercent: -8, scale: 0.94, opacity: 0.5, duration: 0.5, immediateRender: false }, 0);

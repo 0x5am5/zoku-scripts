@@ -1,4 +1,4 @@
-/* zoku-core.js — generated bundle from: barba-init nav-menu nav-theme hero-intro pillars portfolio filter card-deck testimonials-slider process-scroll pullquote-cranes. Do not edit directly; edit the source modules and run ./build.sh. */
+/* zoku-core.js — generated bundle from: barba-init nav-menu nav-theme canvas-theme hero-intro pillars portfolio filter card-deck testimonials-slider process-scroll pullquote-cranes. Do not edit directly; edit the source modules and run ./build.sh. */
 
 /* ==== barba-init.js ==== */
 /**
@@ -77,7 +77,7 @@
      *
      * The pinned tag below is stamped from the repo-root VERSION file by
      * build.sh — do NOT edit it by hand; bump VERSION and run ./build.sh. */
-    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.3.12/zoku-halftone.js';
+    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.3.13/zoku-halftone.js';
     let halftoneLoaded = false;
     let halftoneLoading = false;
     const ensureHalftone = (scope) => {
@@ -343,6 +343,28 @@
         const nextWordmark = nextDoc.querySelector('.footer_wordmark');
         if (liveWordmark && nextWordmark && liveWordmark.className !== nextWordmark.className) {
             liveWordmark.className = nextWordmark.className;
+        }
+
+        // The footer links express light/dark the same way as the wordmark: dark
+        // pages stamp the variant combo class onto every link
+        // (`footer_link w-variant-84b5707f-0067-1a21-5745-1a239b984f4e`), light
+        // pages emit plain `footer_link` — and like everything else out here they
+        // stay frozen on the entry page's classes. Don't copy class lists
+        // pairwise (links also carry per-link combos like `cc-legal`, and counts
+        // could drift): mirror just the `w-variant-*` classes from the incoming
+        // links onto every live link, leaving other combo classes untouched.
+        const nextLink = nextDoc.querySelector('.footer_link');
+        if (nextLink) {
+            const nextVariants = Array.from(nextLink.classList)
+                .filter((c) => c.indexOf('w-variant-') === 0);
+            document.querySelectorAll('.footer_link').forEach((a) => {
+                Array.from(a.classList).forEach((c) => {
+                    if (c.indexOf('w-variant-') === 0 && nextVariants.indexOf(c) === -1) {
+                        a.classList.remove(c);
+                    }
+                });
+                nextVariants.forEach((c) => a.classList.add(c));
+            });
         }
     };
 
@@ -898,6 +920,119 @@
     refresh();
 })();
 
+/* ==== canvas-theme.js ==== */
+/**
+ * Overscroll canvas colour (iOS rubber-band / Safari bar reveal).
+ *
+ * The document canvas — the html element's background — is what iOS Safari
+ * shows beyond the page during rubber-band overscroll and in the gap behind
+ * the collapsing address/tab bar. Every page here opens dark, but most end on
+ * the light cream footer, so a single dark canvas reads as a black slab
+ * bleeding out of the footer when the reader bounces past the bottom.
+ *
+ * A hard-stop gradient on <html> cannot fix this: the canvas background image
+ * is positioned to the root element's box, and beyond that box it either
+ * tiles (the strip above the page shows the BOTTOM of the tile above — the
+ * wrong end) or, with no-repeat, falls back to background-color. Neither
+ * extends the gradient's end colours outward, so the two overscroll regions
+ * are painted separately instead:
+ *
+ *   - html background-color = the FOOTER's rendered colour — covers the
+ *     bottom overscroll and the reveal behind Safari's bottom bar near the
+ *     page end;
+ *   - a fixed, viewport-tall "cap" parked just above the viewport
+ *     (top: -100vh), painted with the TOP section's rendered colour — a top
+ *     rubber-band drags the layout viewport (fixed elements included) down
+ *     with the bounce, so the cap slides exactly into the gap it opens.
+ *
+ * Colours are probed live from computed styles, never hardcoded: top = the
+ * first rendered child of the active <main> (walking up to the first opaque
+ * ancestor, as nav-theme does), bottom = the persistent .footer — barba-init
+ * syncs the footer's variant BEFORE initAll() runs, so the probe always sees
+ * the destination page's footer colour. Per-page overrides win over the
+ * probe via data-canvas-top / data-canvas-bottom attributes on the <main>.
+ *
+ * Like the pixel band, the cap is built here with inline styles — no
+ * authored markup, no classes, nothing for Webflow's class system to carry.
+ */
+(function () {
+    const FALLBACK = '#161616'; // --zoku-color-bg-primary
+
+    // First sufficiently-opaque computed background colour walking up the
+    // tree (same resolution rule as nav-theme's isLightSurface).
+    const effectiveBg = (el) => {
+        let node = el;
+        while (node && node !== document.documentElement) {
+            const bg = getComputedStyle(node).backgroundColor;
+            const m = bg && bg.match(/rgba?\(([^)]+)\)/);
+            if (m) {
+                const parts = m[1].split(',').map((n) => parseFloat(n));
+                if ((parts.length > 3 ? parts[3] : 1) > 0.5) return bg;
+            }
+            node = node.parentElement;
+        }
+        return FALLBACK;
+    };
+
+    // The live page main — during a Barba swap two `.main-wrapper`s coexist
+    // (the outgoing one frozen position:fixed), so prefer the scope the
+    // orchestrator passes, else the in-flow main (mirrors nav-theme).
+    const resolveMain = (scope) => {
+        if (scope && scope.classList && scope.classList.contains('main-wrapper')) return scope;
+        if (scope && typeof scope.querySelector === 'function') {
+            const inScope = scope.querySelector('.main-wrapper');
+            if (inScope) return inScope;
+        }
+        const all = Array.from(document.querySelectorAll('.main-wrapper'));
+        return all.find((m) => getComputedStyle(m).position !== 'fixed') || all[all.length - 1] || null;
+    };
+
+    let cap = null;
+    const ensureCap = () => {
+        if (cap && cap.isConnected) return cap;
+        cap = document.createElement('div');
+        cap.setAttribute('data-canvas-cap', '');
+        cap.setAttribute('aria-hidden', 'true');
+        const s = cap.style;
+        s.position = 'fixed';
+        s.top = '-100vh';
+        s.left = '0';
+        s.right = '0';
+        s.height = '100vh';
+        s.zIndex = '-1';
+        s.pointerEvents = 'none';
+        document.body.appendChild(cap);
+        return cap;
+    };
+
+    const init = (scope) => {
+        const main = resolveMain(scope);
+
+        // Top: the first rendered section of the page.
+        let topEl = null;
+        if (main) {
+            topEl = Array.from(main.children).find((el) => el.offsetHeight > 0) || null;
+        }
+        const top = (main && main.getAttribute('data-canvas-top'))
+            || effectiveBg(topEl || main || document.body);
+
+        // Bottom: the persistent footer (variant already synced to the
+        // incoming page by the time initAll runs). components.html carries a
+        // second demo footer — take the last rendered one, i.e. document end.
+        const footers = Array.from(document.querySelectorAll('.footer'))
+            .filter((f) => f.offsetHeight > 0);
+        const footer = footers[footers.length - 1] || null;
+        const bottom = (main && main.getAttribute('data-canvas-bottom'))
+            || (footer ? effectiveBg(footer) : top);
+
+        document.documentElement.style.backgroundColor = bottom;
+        ensureCap().style.backgroundColor = top;
+    };
+
+    window.ZokuCanvasTheme = { refresh: init };
+    if (window.ZokuPage) window.ZokuPage.register({ init });
+})();
+
 /* ==== hero-intro.js ==== */
 /**
  * Hero intro — home page load animation.
@@ -1042,10 +1177,14 @@
 
         const hidden = { yPercent: 130, opacity: 0, scale: 1, transformOrigin: '50% 100%', willChange: 'transform, opacity' };
 
-        // Desktop card-deck deal-in: pin the whole section, then deal both cards in as
-        // the reader scrolls — card one lands by ~50%, then card two rises over it and
-        // pushes card one back into a dimmed shade. The section pin hides the brief
-        // empty stage. Returns a cleanup that resets the cards + stage.
+        // Desktop card-deck deal-in, two phases so the cards are already in motion
+        // on approach rather than waiting for the pin:
+        //   1. Card one deals in scrubbed across the approach — from the section top
+        //      crossing three-quarters of the way down the viewport to the pin point
+        //      — so it is fully landed when the pin engages.
+        //   2. The section pins and card two rises over card one, pushing it back
+        //      into a dimmed shade.
+        // Returns a cleanup that resets the cards + stage.
         function buildDeck(pinTarget) {
             const stage = section.querySelector('.zoku-home-pillars_cards');
             if (!stage) return null;
@@ -1056,12 +1195,26 @@
             // one in the DOM, so it naturally stacks in front.
             gsap.set([cardOne, cardTwo], hidden);
 
+            // Phase 1 — card one deals in on approach, landing exactly at the pin.
+            const intro = gsap.to(cardOne, {
+                yPercent: 0,
+                opacity: 1,
+                ease: 'power3.out',
+                scrollTrigger: {
+                    trigger: pinTarget,
+                    start: 'top 75%',
+                    end: () => 'top top+=' + navHeight(),
+                    scrub: 0.6,
+                    invalidateOnRefresh: true,
+                },
+            });
+
             const tl = gsap.timeline({
                 defaults: { ease: 'power3.out' },
                 scrollTrigger: {
                     trigger: pinTarget,
                     start: () => 'top top+=' + navHeight(),
-                    end: '+=140%',
+                    end: '+=80%',
                     scrub: 0.6,
                     pin: pinTarget,
                     pinSpacing: true,
@@ -1074,14 +1227,18 @@
                 },
             });
 
-            // 0 → 50%: card one deals into the resting front position.
-            tl.to(cardOne, { yPercent: 0, opacity: 1, duration: 0.5 }, 0);
-            // 50% → 90%: card two slides up into the front while card one is pushed
-            // back — lifted, scaled down and dimmed like a shade.
-            tl.to(cardTwo, { yPercent: 0, opacity: 1, duration: 0.4 }, 0.5);
-            tl.to(cardOne, { yPercent: -8, scale: 0.94, opacity: 0.5, duration: 0.4 }, 0.5);
+            // Phase 2 — after a short beat, card two slides up into the front while
+            // card one is pushed back — lifted, scaled down and dimmed like a shade.
+            // fromTo with immediateRender:false so card one's recorded start is its
+            // landed state, not the hidden set() above.
+            tl.to(cardTwo, { yPercent: 0, opacity: 1, duration: 0.7 }, 0.15);
+            tl.fromTo(cardOne,
+                { yPercent: 0, scale: 1, opacity: 1 },
+                { yPercent: -8, scale: 0.94, opacity: 0.5, duration: 0.7, immediateRender: false }, 0.15);
 
             return () => {
+                if (intro.scrollTrigger) intro.scrollTrigger.kill();
+                intro.kill();
                 stage.classList.remove('cc-deck');
                 gsap.set([cardOne, cardTwo], { clearProps: 'all' });
             };
@@ -1107,9 +1264,12 @@
         // Two phases so card one animates IN without leaving a tall empty box to
         // scroll past:
         //   1. As the cards box scrolls up into view (bottom → top), card one deals
-        //      in — the box fills as it rises, so there is no empty gap and the first
-        //      card is seen animating rather than sitting static.
-        //   2. The box then pins at the top and card two deals in over card one,
+        //      in — landing by the HALFWAY point of that travel, so it is visibly
+        //      gliding while the box crosses the lower quarter of the screen (a
+        //      full-travel scrub kept it below the fold / transparent until the box
+        //      was nearly at the top). Card two then starts rising behind it, its
+        //      frosted glass already overlapping card one before the pin engages.
+        //   2. The box pins at the top and card two finishes its rise over card one,
         //      pushing it back into the dimmed shade.
         mm.add('(max-width: 991px) and (prefers-reduced-motion: no-preference)', () => {
             const stage = section.querySelector('.zoku-home-pillars_cards');
@@ -1118,13 +1278,10 @@
             stage.classList.add('cc-deck');
             gsap.set([cardOne, cardTwo], hidden);
 
-            // Phase 1 — card one deals in across the box's travel from entering the
-            // viewport to reaching the top, so it is fully landed by the time the pin
-            // engages.
-            const intro = gsap.to(cardOne, {
-                yPercent: 0,
-                opacity: 1,
-                ease: 'power3.out',
+            // Phase 1 — card one lands by 50% of the approach; card two rises to
+            // yPercent 60 (frost over card one's lower band) across the second half.
+            const intro = gsap.timeline({
+                defaults: { ease: 'power3.out' },
                 scrollTrigger: {
                     trigger: stage,
                     start: 'top bottom',
@@ -1133,16 +1290,19 @@
                     invalidateOnRefresh: true,
                 },
             });
+            intro.to(cardOne, { yPercent: 0, opacity: 1, duration: 0.5 }, 0);
+            intro.to(cardTwo, { yPercent: 60, opacity: 1, duration: 0.5 }, 0.5);
 
-            // Phase 2 — pin the cards at the top; card two deals in over card one,
-            // which is pushed back. fromTo with immediateRender:false so this does
-            // not snap card one's start values before the pin scrubs in.
+            // Phase 2 — pin the cards at the top; card two completes its deal-in
+            // over card one, which is pushed back. fromTos with immediateRender:false
+            // and explicit starts matching phase 1's end values, so the handoff at
+            // the pin point is seamless in both scroll directions.
             const deck = gsap.timeline({
                 defaults: { ease: 'power3.out' },
                 scrollTrigger: {
                     trigger: stage,
                     start: () => 'top top+=' + navHeight(),
-                    end: '+=70%',
+                    end: '+=50%',
                     scrub: 0.6,
                     pin: stage,
                     pinSpacing: true,
@@ -1152,7 +1312,9 @@
                     invalidateOnRefresh: true,
                 },
             });
-            deck.to(cardTwo, { yPercent: 0, opacity: 1, duration: 0.5 }, 0);
+            deck.fromTo(cardTwo,
+                { yPercent: 60, opacity: 1 },
+                { yPercent: 0, duration: 0.5, immediateRender: false }, 0);
             deck.fromTo(cardOne,
                 { yPercent: 0, scale: 1, opacity: 1 },
                 { yPercent: -8, scale: 0.94, opacity: 0.5, duration: 0.5, immediateRender: false }, 0);
@@ -1182,8 +1344,8 @@
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const hasGsap = typeof window.gsap !== 'undefined';
 
-    // Resting tilt of the open panel — matches Figma 4340:26452.
-    const REST_ROTATION = -4;
+    // Resting rotation of the open panel — the card sits straight.
+    const REST_ROTATION = 0;
 
     // State lives on the [open] attribute, which works on any element — the
     // static build uses native <details>, but Webflow re-imports these rows as
@@ -1202,7 +1364,7 @@
     const MAGNET_MAX = 50;
 
     // On top of the follow, the panel rotates a touch counter-clockwise as the
-    // pointer moves right across the section — capped so it only ever nudges the tilt.
+    // pointer moves right across the section — capped so the nudge stays subtle.
     const ROTATE_MAX = 5;
 
     scopes.forEach((scope) => {
@@ -1220,7 +1382,7 @@
         let followY = null;
         let followRot = null;
 
-        // Slide the panel up from below as it fades in, settling into its tilt.
+        // Slide the panel up from below as it fades in, settling flat.
         const revealPanel = (item) => {
             const panel = item.querySelector('.zoku-portfolio-item_panel');
             if (!panel) return;
@@ -1229,7 +1391,7 @@
             panel.style.animation = 'none';
 
             if (!useMotion) {
-                // Fall back to the resting tilt with no motion.
+                // Fall back to the resting state with no motion.
                 panel.style.transform = '';
                 panel.style.opacity = '';
                 return;
@@ -1263,8 +1425,8 @@
                 const ny = (e.clientY - (rect.top + rect.height / 2)) / (rect.height / 2);
                 followX(clamp(nx) * MAGNET_MAX);
                 followY(clamp(ny) * MAGNET_MAX);
-                // Pointer right of centre (nx > 0) winds the panel further
-                // counter-clockwise off its resting tilt; left of centre eases it back.
+                // Pointer right of centre (nx > 0) winds the panel
+                // counter-clockwise off its resting angle; left of centre eases it back.
                 if (followRot) followRot(REST_ROTATION - clamp(nx) * ROTATE_MAX);
             });
             scope.addEventListener('mouseleave', () => {

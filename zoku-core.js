@@ -1617,8 +1617,22 @@
  * .zoku-home-results / .zoku-unique / .zoku-catalyse / .zoku-means, and
  * .section.cc-clip on the growth "things we do not do" section).
  *
- * Powered by GSAP + ScrollTrigger (global on every page). Early-exits under
- * prefers-reduced-motion or missing GSAP, leaving the resting layout untouched.
+ * Implementation notes:
+ * - Visibility is detected with an IntersectionObserver, NOT a ScrollTrigger:
+ *   deck sections sit below pinned sections (pillars/trifecta), whose
+ *   pin-spacers shift trigger positions after creation, and the initial-load
+ *   ScrollTrigger.refresh() interplay proved unreliable for a
+ *   created-paused-then-played tween. The IO measures live geometry at fire
+ *   time, so pinning never skews it. (Same pattern Smooothy uses internally.)
+ * - The slide-in tween is created AT FIRE TIME (not pre-created and paused),
+ *   so no earlier refresh/overwrite pass can invalidate it.
+ * - init() is guarded per wrap: barba-init's afterEnter hook ALSO fires for
+ *   the initial page load (Barba 2 behaviour), so init() runs twice on a
+ *   direct load — a second measuring pass would see the already-parked cards
+ *   and collapse every offset to ~40px.
+ *
+ * Early-exits under prefers-reduced-motion or missing GSAP, leaving the
+ * resting layout untouched. No JS at all → cards simply rest in place.
  */
 (function () {
   const DURATION = 0.9;
@@ -1626,29 +1640,34 @@
   const STAGGER = 0.12;
   // Extra px beyond the viewport edge so box-shadows/borders never peek in.
   const OVERSHOOT = 40;
+  // Fire when the deck's top clears the bottom ~15% of the viewport.
+  const IO_MARGIN = '0px 0px -15% 0px';
 
   let decks = [];
+  const initialised = new WeakSet();
 
   function init(scope) {
-    if (typeof gsap === 'undefined' || typeof ScrollTrigger === 'undefined') return;
+    if (typeof gsap === 'undefined') return;
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    gsap.registerPlugin(ScrollTrigger);
+    if (typeof IntersectionObserver === 'undefined') return;
 
     const root = scope || document;
     const found = [];
 
     root.querySelectorAll('[data-deck]').forEach((wrap) => {
-        found.push(Array.from(wrap.querySelectorAll('[data-deck-card]')));
+        found.push({ wrap, cards: Array.from(wrap.querySelectorAll('[data-deck-card]')) });
     });
 
     // Home results deck — legacy class-based hook (Webflow owns this markup).
     root.querySelectorAll('.zoku-home-results_cards').forEach((wrap) => {
         if (wrap.matches('[data-deck]')) return; // already collected above
-        found.push(Array.from(wrap.querySelectorAll('.zoku-home-results_card')));
+        found.push({ wrap, cards: Array.from(wrap.querySelectorAll('.zoku-home-results_card')) });
     });
 
-    found.forEach((cards) => {
+    found.forEach(({ wrap, cards }) => {
         if (cards.length === 0) return;
+        if (initialised.has(wrap)) return;
+        initialised.add(wrap);
 
         // Distance each card travels: resting spot → fully beyond the
         // viewport's right edge. Measured before any transform is applied.
@@ -1661,33 +1680,36 @@
             gsap.set(card, { x: offsets[i], willChange: 'transform' });
         });
 
-        const tween = gsap.to(cards, {
-            x: 0,
-            duration: DURATION,
-            ease: EASE,
-            stagger: STAGGER,
-            paused: true,
-            // Hand the cards back to the CSS once settled — no lingering
-            // transform/will-change on the resting layout.
-            onComplete: () => gsap.set(cards, { clearProps: 'transform,willChange' }),
-        });
+        const deck = { wrap, cards, observer: null, tween: null };
 
-        const trigger = ScrollTrigger.create({
-            trigger: cards[0].parentElement || cards[0],
-            start: 'top 80%',
-            once: true,
-            onEnter: () => tween.play(),
-        });
+        const reveal = () => {
+            if (deck.observer) { deck.observer.disconnect(); deck.observer = null; }
+            deck.tween = gsap.to(cards, {
+                x: 0,
+                duration: DURATION,
+                ease: EASE,
+                stagger: STAGGER,
+                // Hand the cards back to the CSS once settled — no lingering
+                // transform/will-change on the resting layout.
+                onComplete: () => gsap.set(cards, { clearProps: 'transform,willChange' }),
+            });
+        };
 
-        decks.push({ trigger, tween, cards });
+        deck.observer = new IntersectionObserver((entries) => {
+            if (entries.some((entry) => entry.isIntersecting)) reveal();
+        }, { rootMargin: IO_MARGIN });
+        deck.observer.observe(wrap);
+
+        decks.push(deck);
     });
   }
 
   function destroy() {
-      decks.forEach(({ trigger, tween, cards }) => {
-          trigger.kill();
-          tween.kill();
-          gsap.set(cards, { clearProps: 'transform,willChange' });
+      decks.forEach((deck) => {
+          initialised.delete(deck.wrap);
+          if (deck.observer) deck.observer.disconnect();
+          if (deck.tween) deck.tween.kill();
+          gsap.set(deck.cards, { clearProps: 'transform,willChange' });
       });
       decks = [];
   }

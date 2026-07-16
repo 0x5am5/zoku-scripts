@@ -33,7 +33,7 @@ else
   sed -i '' "s|zoku-scripts@v[0-9][0-9.]*|zoku-scripts@v${version}|g" webflow-snippet.html
 fi
 
-core=(barba-init nav-menu nav-theme canvas-theme hero-intro pillars portfolio filter card-deck testimonials-slider process-scroll pullquote-cranes)
+core=(barba-init nav-menu nav-theme canvas-theme hero-intro hero-parallax pillars portfolio filter card-deck testimonials-slider pullquote-cranes)
 half=(halftone-shader scroll-scrub trifecta-line)
 
 # build <outfile> <name> <module…> — <name> is the committed bundle basename

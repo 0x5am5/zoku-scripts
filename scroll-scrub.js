@@ -15,12 +15,12 @@
  *
  * Geometry is cached, not read live per frame. Each item's absolute document offset
  * (docTop) and height are measured once and progress is derived from window.scrollY
- * against that cache — so content above the track changing height (e.g. process-scroll
- * revealing a step body, which lengthens the page) does NOT jolt the sprite mid-scroll.
- * The cache is refreshed on resize / load and on a `zoku:layout` event (dispatched by
- * process-scroll when its steps reflow); those refreshes land while the track is still
- * out of its scrub window (progress clamped at 0), so the sprite stays smooth AND stays
- * calibrated to the track's settled position.
+ * against that cache — so content above the track changing height (an accordion
+ * opening, which lengthens the page) does NOT jolt the sprite mid-scroll. The cache
+ * is refreshed on resize / load and on a `zoku:layout` event (any module that
+ * reflows the page can dispatch it); those refreshes land while the track is still
+ * out of its scrub window (progress clamped at 0), so the sprite stays smooth AND
+ * stays calibrated to the track's settled position.
  *
  * Re-runnable for Barba navigation: the window listeners are bound once, but the
  * tracked items are recomputed by init() against the freshly-swapped <main>.
@@ -116,8 +116,8 @@
         requestAnimationFrame(update);
     }
 
-    // Geometry may have changed (viewport resize, late reflow above a track, or a
-    // process-scroll step toggling its body). Re-cache offsets, then repaint. rAF-
+    // Geometry may have changed (viewport resize, or a late reflow above a track).
+    // Re-cache offsets, then repaint. rAF-
     // coalesced so a burst of ResizeObserver / resize events costs one layout read.
     // A resize may also cross a breakpoint, so re-resolve the responsive margins too.
     function remeasure() {
@@ -151,8 +151,8 @@
     window.addEventListener('scroll', onScroll, { passive: true });
     window.addEventListener('resize', remeasure);
     window.addEventListener('load', remeasure);
-    // Fired by process-scroll (and anything else that reflows the page) once its
-    // content has settled, so the cached track offsets stay calibrated.
+    // Fired by anything that reflows the page once its content has settled, so
+    // the cached track offsets stay calibrated.
     window.addEventListener('zoku:layout', remeasure);
 
     if (window.ZokuPage) window.ZokuPage.register({ init });

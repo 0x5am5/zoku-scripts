@@ -193,47 +193,6 @@
     background-image: linear-gradient(90deg, rgba(235, 235, 235, 0) 0%, rgb(235, 235, 235) 100%);
   }
 
-  /* Process rail progress (growth "how it works") — process-scroll.js drives the
-   purple segment via the --zoku-process-progress-* custom properties; the
-   Designer class holds static literals, so the var() indirection is restored
-   here (rests collapsed at 0 until the scroll-spy positions it). */
-  .zoku-process_rail-progress {
-    top: var(--zoku-process-progress-offset, 0px);
-    height: var(--zoku-process-progress-height, 0px);
-  }
-
-  /* Process step scroll-spy muting — process-scroll.js adds cc-active to the one
-   open [data-process-step]; every other step is muted via :not(.cc-active). All
-   of it is gated behind .is-scrollspy so a no-JS page shows every step in full.
-   These are descendant + attribute + JS-state selectors, so they can't be
-   Designer classes and must live in this custom-code embed.
-
-   The dimming opacity lands on the index/title LEAVES, never on the step or a
-   wrapper that contains the collapsing body: opacity < 1 on such a subtree
-   composites it offscreen and iOS Safari can paint that layer stale mid-scroll
-   (a ghost of the title at its pre-reflow position — the "duplicate step"
-   artifact). Muted steps also drop their logo tiles / sub-lists; the active step
-   keeps its natural flex/grid display, so nothing needs restoring. */
-  .zoku-process.is-scrollspy [data-process-step]:not(.cc-active) .zoku-process-step_index,
-  .zoku-process.is-scrollspy [data-process-step]:not(.cc-active) .zoku-process-step_title {
-    opacity: 0.4;
-  }
-  .zoku-process.is-scrollspy [data-process-step]:not(.cc-active) .zoku-process-step_body {
-    display: none;
-  }
-  .zoku-process.is-scrollspy [data-process-step]:not(.cc-active) .zoku-process-step_logos,
-  .zoku-process.is-scrollspy [data-process-step]:not(.cc-active) .zoku-process-step_list {
-    display: none;
-  }
-
-  /* iOS Safari: the step list reflows (bodies toggling display) during async
-   momentum scroll; promote it to its own compositing layer so WebKit repaints
-   the whole list as a unit instead of leaving stale page tiles behind. Keyed
-   on the runtime .is-scrollspy state, so it can't be a Designer style. */
-  .zoku-process.is-scrollspy .zoku-process_list {
-    transform: translateZ(0);
-  }
-
   /* Resources filter dropdown (portfolio / resources index pages) — the pill is a
    no-JS checkbox dropdown on mobile. Designer can't hold sibling `:checked ~`
    selectors, the descendant caret rotation, or clip/clip-path on the
@@ -460,6 +419,22 @@
 .cc-light .zoku-button.cc-ghost {
     background-color: #ebebeb4d;
   }
+
+  /* Thesis decorative flower (2026-07-15) — the sprite <img> inside
+   .zoku-thesis_media is only the pre-WebGL fallback (the halftone shader
+   overlays a canvas and the global [data-halftone] > img rule above hides it).
+   Designer classes can't hold the descendant selector, so its sizing lives
+   here. Mirrors `.zoku-thesis_media img` in styles.css. */
+  .zoku-thesis_media img {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
 </style>
 
 <!-- Site Settings → Custom Code → Footer Code -->
@@ -469,6 +444,6 @@
      serves them (3.15.0, plus SplitText / Draggable / InertiaPlugin) on every page. -->
 <script src="https://cdn.jsdelivr.net/npm/smooothy@0.0.35/dist/smooothy.min.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/@barba/core@2.10.3/dist/barba.umd.js" defer></script>
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.3.13/zoku-core.js" defer></script>
+<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.4.0/zoku-core.js" defer></script>
 <!-- suppress GSAP trigger warnings -->
 <script>window.addEventListener('load',()=>window.gsap&&gsap.config({nullTargetWarn:false}));</script>

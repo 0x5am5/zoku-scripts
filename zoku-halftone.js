@@ -71,6 +71,15 @@
  *
  * ── Public API ──────────────────────────────────────────────────────────────────
  *   window.ZokuHalftone.setProgress(el, p)   Set a scrubbed sprite's progress (0–1).
+ *                                            The first call CLAIMS the instance for
+ *                                            scroll: a play-once auto-play sprite then
+ *                                            renders min(intro clock, scrub) — the load
+ *                                            intro still plays out under the cap, and
+ *                                            scrolling scrubs back from wherever the
+ *                                            playback has reached, never jumping (used
+ *                                            by the home hero's reverse scroll-scrub).
+ *                                            Claimed looping sprites retire their clock
+ *                                            and become pure scrub.
  *
  * Requires WebGL2 (for fwidth-based anti-aliasing). Where WebGL2 is unavailable the
  * original <img> is left visible untouched. Honours prefers-reduced-motion by freezing
@@ -520,6 +529,7 @@ void main() {
             spriteFrameF: 0,
             lastDrawnFrame: -1,
             scrubProgress: 0,          // 0–1, set via setProgress() for scrub sprites
+            scrubOwned: false,         // true once setProgress() has taken the frame clock
             // Hover glow — eased position (x/y) chases the pointer target (tx/ty),
             // eased strength (s) chases the presence target (ts). Canvas UV, y-up.
             hover: config.hover ? { x: 0.5, y: 0.5, tx: 0.5, ty: 0.5, s: 0, ts: 0 } : null,
@@ -670,7 +680,15 @@ void main() {
         /** True only for clock-driven (auto-play) sprites — scrub & stills redraw on demand. */
         inst.isAnimated = function () {
             if (config.scrub || prefersReducedMotion.matches) return false;
-            return !!(inst.sprite && inst.sprite.frames > 1);
+            if (!(inst.sprite && inst.sprite.frames > 1)) return false;
+            if (inst.scrubOwned) {
+                // Scroll-claimed play-once sprite: the intro clock keeps ticking
+                // until it completes (tick() caps the visible frame at the scrub
+                // progress, so the bloom finishes under the cap — no jump).
+                // Claimed looping sprites retire their clock immediately.
+                return !config.loop && inst.spriteFrameF < inst.sprite.frames - 1;
+            }
+            return true;
         };
 
         /** True while the hover glow is still chasing its position/strength targets. */
@@ -710,9 +728,10 @@ void main() {
 
             if (inst.sprite) {
                 const frames = inst.sprite.frames;
+                const scrubIdx = Math.round(clamp(inst.scrubProgress, 0, 1) * (frames - 1));
                 let idx;
                 if (config.scrub) {
-                    idx = Math.round(clamp(inst.scrubProgress, 0, 1) * (frames - 1));
+                    idx = scrubIdx;
                 } else if (inst.isAnimated()) {
                     inst.spriteFrameF += dt * config.fps;
                     if (inst.spriteFrameF >= frames) {
@@ -721,6 +740,16 @@ void main() {
                             : frames - 1;
                     }
                     idx = Math.floor(inst.spriteFrameF);
+                    // A scroll-claimed play-once sprite shows min(clock, scrub):
+                    // at rest (scrub = 1) the cap is a no-op and the intro plays
+                    // out; scrolling mid-intro scrubs back from wherever playback
+                    // has reached — never a jump to the end frame.
+                    if (inst.scrubOwned) idx = Math.min(idx, scrubIdx);
+                } else if (inst.scrubOwned) {
+                    // Claimed sprite whose clock is done (or never ran — looping
+                    // sprites hand over entirely, reduced motion never starts
+                    // it): pure scrub.
+                    idx = scrubIdx;
                 } else {
                     idx = 0;
                 }
@@ -916,14 +945,25 @@ void main() {
     window.ZokuHalftone = window.ZokuHalftone || {
         /**
          * Set the playback progress (0–1) of a scroll-scrubbed sprite instance.
-         * @param {Element} el  The [data-halftone][data-halftone-scrub] wrapper.
+         *
+         * The first call CLAIMS the instance for scroll. A play-once auto-play
+         * sprite keeps its intro clock but renders min(clock, scrub): claiming at
+         * scrub = 1 is visually a no-op (the intro plays out under the cap), and
+         * lowering the scrub scrubs back from wherever playback has reached — the
+         * frame can never jump. Once the clock completes (or for looping sprites,
+         * immediately) the frame is pure scrub.
+         *
+         * @param {Element} el  A [data-halftone] sprite wrapper (usually also
+         *                      [data-halftone-scrub], but any sprite can be claimed).
          * @param {number}  p   Normalised progress, 0 = first frame, 1 = last frame.
          */
         setProgress(el, p) {
             const inst = instanceFor(el);
             if (!inst) return;
+            const takeover = !inst.scrubOwned;
+            inst.scrubOwned = true;
             const next = clamp(p, 0, 1);
-            if (next === inst.scrubProgress && inst.loaded) return;
+            if (!takeover && next === inst.scrubProgress && inst.loaded) return;
             inst.scrubProgress = next;
             inst.dirty = true;
             if (!inst.active) {
@@ -963,12 +1003,12 @@ void main() {
  *
  * Geometry is cached, not read live per frame. Each item's absolute document offset
  * (docTop) and height are measured once and progress is derived from window.scrollY
- * against that cache — so content above the track changing height (e.g. process-scroll
- * revealing a step body, which lengthens the page) does NOT jolt the sprite mid-scroll.
- * The cache is refreshed on resize / load and on a `zoku:layout` event (dispatched by
- * process-scroll when its steps reflow); those refreshes land while the track is still
- * out of its scrub window (progress clamped at 0), so the sprite stays smooth AND stays
- * calibrated to the track's settled position.
+ * against that cache — so content above the track changing height (an accordion
+ * opening, which lengthens the page) does NOT jolt the sprite mid-scroll. The cache
+ * is refreshed on resize / load and on a `zoku:layout` event (any module that
+ * reflows the page can dispatch it); those refreshes land while the track is still
+ * out of its scrub window (progress clamped at 0), so the sprite stays smooth AND
+ * stays calibrated to the track's settled position.
  *
  * Re-runnable for Barba navigation: the window listeners are bound once, but the
  * tracked items are recomputed by init() against the freshly-swapped <main>.
@@ -1064,8 +1104,8 @@ void main() {
         requestAnimationFrame(update);
     }
 
-    // Geometry may have changed (viewport resize, late reflow above a track, or a
-    // process-scroll step toggling its body). Re-cache offsets, then repaint. rAF-
+    // Geometry may have changed (viewport resize, or a late reflow above a track).
+    // Re-cache offsets, then repaint. rAF-
     // coalesced so a burst of ResizeObserver / resize events costs one layout read.
     // A resize may also cross a breakpoint, so re-resolve the responsive margins too.
     function remeasure() {
@@ -1099,8 +1139,8 @@ void main() {
     window.addEventListener('scroll', onScroll, { passive: true });
     window.addEventListener('resize', remeasure);
     window.addEventListener('load', remeasure);
-    // Fired by process-scroll (and anything else that reflows the page) once its
-    // content has settled, so the cached track offsets stay calibrated.
+    // Fired by anything that reflows the page once its content has settled, so
+    // the cached track offsets stay calibrated.
     window.addEventListener('zoku:layout', remeasure);
 
     if (window.ZokuPage) window.ZokuPage.register({ init });

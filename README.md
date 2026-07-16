@@ -22,11 +22,11 @@ bundles that actually ship — do **not** edit the bundles by hand.
 | `scroll-scrub.js` | Scroll-progress driver for halftone sprite scrub (`[data-scrub-track]`) |
 | `card-deck.js` | Glass-card hover-repel effect (`[data-deck]` / `[data-deck-card]`); also drives the home results deck via a class-based shim |
 | `hero-intro.js` | Home hero headline + CTA intro load animation |
+| `hero-parallax.js` | Hero halftone artwork upward parallax drift (`[data-hero-parallax]`) |
 | `testimonials-slider.js` | Smooothy-powered testimonials carousel + trailing `//DRAG` pill |
 | `pillars.js` | Home pillars section interactions |
 | `portfolio.js` | Portfolio accordion behaviour |
 | `filter.js` | Generic data-driven list filter (`[data-filter]` buttons + `[data-filter-item]` cards) — powers the Portfolio "Product" and Resources "Category" listings |
-| `process-scroll.js` | "How it works" process rail progress |
 | `pullquote-cranes.js` | Ventures pull-quote crane parallax |
 | `trifecta-line.js` | Holy Trifecta timeline connector line |
 | `zoku-core.js` | **Generated bundle** — loaded on every page (barba-init first). Do not edit; run `./build.sh` |

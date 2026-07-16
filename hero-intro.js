@@ -148,6 +148,19 @@
             }
         }
 
+        // LCP fallback handoff: styles.css reveals the lines via a bounded CSS
+        // animation (zoku-hero-reveal-fallback, 1.8s delay) in case this module
+        // is slow to arrive. If that reveal is already painting, adopt the
+        // visible state instead of replaying the intro (killing the animation
+        // without inlining opacity would snap the lines back to the pre-hide
+        // state and blink them off). Either way the animation must be cleared:
+        // a filled CSS animation overrides GSAP's inline styles, which would
+        // pin the lines visible and break the scroll-out fade.
+        const fallbackPainting = targets.some(
+            (el) => parseFloat(window.getComputedStyle(el).opacity) > 0.01
+        );
+        targets.forEach((el) => { el.style.animation = 'none'; });
+
         // No GSAP or reduced motion: reveal immediately, no animation. (CSS already
         // shows them under reduced-motion, but clear inline state defensively.)
         if (!gsap || prefersReduced) {
@@ -155,6 +168,17 @@
                 el.style.opacity = '1';
                 el.style.transform = 'none';
             });
+            return;
+        }
+
+        // CSS fallback got there first — adopt its end state and skip straight
+        // to the scroll scrub.
+        if (fallbackPainting) {
+            targets.forEach((el) => {
+                el.style.opacity = '1';
+                el.style.transform = 'none';
+            });
+            buildVisualScrub(section, bg, lines, cta);
             return;
         }
 

@@ -9,13 +9,15 @@
           can't hold: [open], ::before content toggles, html.zoku-js …,
           JS-injected overlays, rich-text tag styling, sibling/descendant
           combinators keyed on JS state, vendor pseudo-elements).
-  FOOTER: external libraries (separate, cached) + the single zoku-core bundle.
+  FOOTER: external libraries (separate, cached) + the single zoku-core bundle,
+          pulled minified as zoku-core.min.js (jsDelivr auto-minifies the
+          committed source on the fly — ~7.5KB gzipped vs ~30.8KB unminified).
           GSAP + ScrollTrigger are NOT loaded here — Webflow's native GSAP
           integration serves gsap 3.15.0 + ScrollTrigger (and SplitText /
           Draggable / InertiaPlugin) from cdn.prod.website-files.com on every
-          page. zoku-core.js lazy-loads zoku-halftone.js on demand (only on
-          pages that contain a [data-halftone] element), so the 34KB WebGL
-          shader never ships to the pages that don't use it.
+          page. zoku-core lazy-loads zoku-halftone.min.js on demand (only on
+          pages that contain a [data-halftone] element), so the WebGL shader
+          (~7KB gzipped minified) never ships to the pages that don't use it.
   Webflow pins @vX.Y.Z tags for stability; bump the tag on release.
 -->
 
@@ -29,6 +31,13 @@
    added and removed 2026-07-15 — the opaque band read as a shadow behind the
    nav blur. Do not reintroduce a fixed opaque strip at the top edge. -->
 <meta name="theme-color" content="#161616">
+
+<!-- Warm the TLS connection to the CDN that serves the footer libraries + core
+     bundle. Deliberately NO crossorigin: those footer <script>s are classic
+     scripts (no crossorigin attr), so they fetch over a plain, non-CORS
+     connection — a crossorigin preconnect would warm the wrong (CORS) pool and
+     the browser would open a second connection anyway. -->
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
 
 <style>
   /* Pillars card-deck (runtime .cc-deck / .cc-pinned added by pillars.js) */
@@ -56,11 +65,23 @@
     }
   }
 
-  /* Load-animation pre-hide (gated on html.zoku-js — set by the inline head script) */
+  /* Load-animation pre-hide (gated on html.zoku-js — set by the inline head script).
+     The hero headline is the page's LCP element, so the bounded CSS animation
+     reveals it after 1.8s even if the deferred JS chain is slow; hero-intro.js
+     (zoku-core ≥ v1.4.1) adopts or cancels the fallback on init. */
   .zoku-js .zoku-home-hero_headline [data-hero-line],
   .zoku-js .zoku-home-hero_headline [data-hero-cta] {
     opacity: 0;
     transform: translateY(28px);
+    animation: zoku-hero-reveal-fallback 0.6s cubic-bezier(0.22, 1, 0.36, 1) 1.8s forwards;
+  }
+  /* to-only keyframe: implicit `from` = underlying value, so it is a no-op
+     when the GSAP intro has already revealed the lines. */
+  @keyframes zoku-hero-reveal-fallback {
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
   .zoku-js .zoku-home-pillars_lede {
     opacity: 0;
@@ -71,6 +92,7 @@
     .zoku-js .zoku-home-hero_headline [data-hero-cta] {
       opacity: 1;
       transform: none;
+      animation: none;
     }
     .zoku-js .zoku-home-pillars_lede {
       opacity: 1;
@@ -150,20 +172,11 @@
     visibility: visible;
   }
 
-  /* Page transition — Barba.js injects .zoku-band (with .zoku-band_px children)
-   into <body>; Designer can't express the JS-injected overlay, so its runtime
-   CSS lives here. Without it the band renders position:static/height:0 (invisible). */
-  .zoku-band {
-    position: fixed;
-    inset: 0;
-    z-index: 10000;
-    display: none;
-    pointer-events: none;
-  }
-  .zoku-band_px {
-    background: #161616;
-    will-change: opacity;
-  }
+  /* Page transition — since v1.4.1 the rising pixel band is a single <canvas>
+   that barba-init.js injects fully SELF-STYLED (inline position:fixed/inset/
+   z-index/display), so it needs no CSS here. The old .zoku-band / .zoku-band_px
+   rules (the pre-canvas band was a grid of hundreds of spans) were removed with
+   that release — do not reintroduce them. */
 
   /* Adaptive nav — reacts to nav-theme.js toggling .cc-light over light surfaces.
    Webflow can't hold this JS-state selector or the source's custom-property
@@ -444,6 +457,9 @@
      serves them (3.15.0, plus SplitText / Draggable / InertiaPlugin) on every page. -->
 <script src="https://cdn.jsdelivr.net/npm/smooothy@0.0.35/dist/smooothy.min.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/@barba/core@2.10.3/dist/barba.umd.js" defer></script>
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.4.0/zoku-core.js" defer></script>
+<!-- .min.js: jsDelivr auto-minifies the committed bundle on the fly (same @vX.Y.Z
+     pin — the tag is what build.sh stamps, the filename is untouched). Verified live:
+     ~7.5KB gzipped vs ~30.8KB for the unminified zoku-core.js. -->
+<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.4.1/zoku-core.min.js" defer></script>
 <!-- suppress GSAP trigger warnings -->
 <script>window.addEventListener('load',()=>window.gsap&&gsap.config({nullTargetWarn:false}));</script>

@@ -79,12 +79,22 @@
  *                                            playback has reached, never jumping (used
  *                                            by the home hero's reverse scroll-scrub).
  *                                            Claimed looping sprites retire their clock
- *                                            and become pure scrub.
+ *                                            and become pure scrub. Claiming is cheap and
+ *                                            never forces a load: an off-screen instance
+ *                                            stays lazy until the IntersectionObserver
+ *                                            activates it near the viewport, then applies
+ *                                            the stored progress on its first draw.
  *
  * Requires WebGL2 (for fwidth-based anti-aliasing). Where WebGL2 is unavailable the
  * original <img> is left visible untouched. Honours prefers-reduced-motion by freezing
  * auto-played sprites on their first frame. One shared WebGL2 context is multiplexed
- * across every instance on the page (browsers cap live contexts at ~16).
+ * across every instance on the page (browsers cap live contexts at ~16). The shared rAF
+ * loop only issues a GPU draw + 2D blit when an instance's pixels actually change: an
+ * auto-played sprite redraws on each new sprite frame (~10–12fps), not on every display
+ * frame (~60–120Hz); a scroll-scrubbed sprite redraws only when its quantised frame
+ * advances; a still redraws on resize or hover but re-uploads its texture only when the
+ * source itself changes. The shared GL canvas is sized grow-only (never shrinks below the
+ * largest instance seen) so its framebuffer allocation is not thrashed between draws.
  *
  * Responsive images (Webflow srcset): sprite sheets always texture from the img's
  * `src` attribute — the ORIGINAL asset — because the frame grid is defined by the
@@ -440,12 +450,31 @@ void main() {
             if (renderer.lost || !renderer.program || !inst.texture) return;
             const w = Math.max(1, inst.pixelW);
             const h = Math.max(1, inst.pixelH);
-            if (glCanvas.width !== w) glCanvas.width = w;
-            if (glCanvas.height !== h) glCanvas.height = h;
+            // Grow-only sizing. Assigning glCanvas.width/height reallocates the WebGL
+            // backing store, so sizing the shared canvas to each instance in turn thrashed
+            // the framebuffer whenever two differently-sized instances drew in the same
+            // frame. Instead the canvas only ever ENLARGES to fit the biggest instance seen
+            // and never shrinks below it, so it settles at the largest wrapper on the page
+            // (≈ the hero's steady-state cost today) and every later draw reuses that
+            // allocation. Each instance renders into the bottom-left w×h corner via
+            // gl.viewport and blits just that sub-rect back out.
+            if (glCanvas.width < w) glCanvas.width = w;
+            if (glCanvas.height < h) glCanvas.height = h;
 
             gl.viewport(0, 0, w, h);
+            // Clear only the used sub-rect. The fullscreen quad covers the whole viewport,
+            // but its gap fragments discard (leaving whatever the framebuffer held), so the
+            // region must start transparent or a previous LARGER instance's dots would show
+            // through this instance's gaps. A scissored clear of exactly (0,0,w,h) covers
+            // every pixel this draw writes and its blit later reads, and stays cheap on a
+            // grown canvas (it never clears the unused overhang). With this clear there is
+            // no stale-pixel path: every pixel the blit copies was either cleared to
+            // transparent here or written by the quad this frame.
+            gl.enable(gl.SCISSOR_TEST);
+            gl.scissor(0, 0, w, h);
             gl.clearColor(0, 0, 0, 0);
             gl.clear(gl.COLOR_BUFFER_BIT);
+            gl.disable(gl.SCISSOR_TEST);
 
             gl.useProgram(renderer.program);
             gl.bindVertexArray(renderer.vao);
@@ -476,12 +505,15 @@ void main() {
             gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
             gl.bindVertexArray(null);
 
-            // Blit the shared GL canvas into the instance's own visible canvas.
+            // Blit the shared GL canvas into the instance's own visible canvas. gl.viewport
+            // rendered into the BOTTOM-left of the (possibly larger, grow-only) GL canvas;
+            // in the 2D canvas's top-left coordinate space that region begins at
+            // y = glCanvas.height - h, so copy that w×h sub-rect up to the output origin.
             const out = inst.outCanvas;
             if (out.width !== w) out.width = w;
             if (out.height !== h) out.height = h;
             inst.outCtx.clearRect(0, 0, w, h);
-            inst.outCtx.drawImage(glCanvas, 0, 0);
+            inst.outCtx.drawImage(glCanvas, 0, glCanvas.height - h, w, h, 0, 0, w, h);
         };
 
         // Exposed so a context-restore can rebuild the program/buffers on the SAME context.
@@ -524,6 +556,7 @@ void main() {
             loaded: false,
             loading: false,
             loadedSrc: '',             // URL the current texture was loaded from
+            textureDirty: false,       // still case: true when the texture needs a (re)upload (source changed / new handle)
             revealed: false,
             // Sprite playback.
             spriteFrameF: 0,
@@ -595,8 +628,9 @@ void main() {
             } else {
                 inst.sprite = null;
                 inst.still = source;
+                inst.textureDirty = true;  // a fresh still source (first load or srcset upgrade) must be uploaded before the next draw
             }
-            inst.lastDrawnFrame = -1;  // force a texture re-upload (matters on re-loads)
+            inst.lastDrawnFrame = -1;  // force a sprite frame re-upload (matters on re-loads)
             inst.loaded = true;
             inst.dirty = true;
             renderLoopKick();
@@ -759,11 +793,30 @@ void main() {
                     inst.lastDrawnFrame = idx;
                     inst.dirty = true;
                 }
-            } else if (inst.still && inst.dirty) {
+            } else if (inst.still && inst.textureDirty) {
+                // Re-upload the still's texture ONLY when the source itself changed
+                // (first load, an srcset upgrade, or a context-restore mint) — not on
+                // every `dirty`. A resize or hover sets `dirty` to force a re-render, but
+                // the texture content is unchanged there, so re-running a full-resolution
+                // texImage2D would be wasted work (an iOS URL-bar collapse firing the
+                // ResizeObserver mid-scroll would otherwise re-upload every visible still
+                // on each scrolled frame). The shader re-samples the existing texture at
+                // the new size/aspect without a re-upload.
                 uploadSource(renderer.gl, inst.texture, inst.still);
+                inst.textureDirty = false;
             }
 
-            if (inst.dirty || inst.isAnimated()) {
+            // Draw only when something actually changed. For an auto-played sprite the
+            // sprite branch above sets `dirty` whenever the visible frame advances, so
+            // gating on `dirty` alone redraws at the sprite's own fps (~10–12Hz) rather
+            // than once per display frame (~60–120Hz). The rAF loop still runs every frame
+            // for animated sprites (renderLoop keys hasWork off isAnimated()) so the clock
+            // keeps advancing, but the full shader pass + 2D blit fire only on a genuine
+            // frame change. reveal() still fires on the first paint (onImageReady/refresh
+            // set dirty); hover easing still redraws every frame (updateHover sets dirty
+            // per frame); a scroll-claimed play-once sprite whose capped idx is unchanged
+            // correctly stops drawing while that idx holds.
+            if (inst.dirty) {
                 renderer.drawInstance(inst);
                 reveal();
                 inst.dirty = false;
@@ -779,7 +832,8 @@ void main() {
         /** Re-upload the current frame after a context restore. */
         inst.refresh = function () {
             inst.texture = renderer.createTexture();
-            inst.lastDrawnFrame = -1;
+            inst.lastDrawnFrame = -1;   // sprite case: forces the current frame to re-upload on next tick
+            inst.textureDirty = true;   // still case: the freshly-minted texture handle needs the source re-uploaded
             inst.dirty = true;
         };
 
@@ -953,6 +1007,15 @@ void main() {
          * frame can never jump. Once the clock completes (or for looping sprites,
          * immediately) the frame is pure scrub.
          *
+         * Claiming is CHEAP and does NOT activate the instance: it only ensures the
+         * instance object + GL texture handle exist (no network) and stores the
+         * progress. An inactive instance is left for the IntersectionObserver to
+         * activate (and load the sheet) near the viewport — this keeps scroll-scrub's
+         * init, which calls setProgress for every track on the page, from eagerly
+         * downloading far-off-screen sprite sheets. The stored progress survives on
+         * the instance and is honoured on the first draw after activation. When the
+         * instance is already active and loaded the new frame is drawn synchronously.
+         *
          * @param {Element} el  A [data-halftone] sprite wrapper (usually also
          *                      [data-halftone-scrub], but any sprite can be claimed).
          * @param {number}  p   Normalised progress, 0 = first frame, 1 = last frame.
@@ -965,15 +1028,21 @@ void main() {
             const next = clamp(p, 0, 1);
             if (!takeover && next === inst.scrubProgress && inst.loaded) return;
             inst.scrubProgress = next;
-            inst.dirty = true;
-            if (!inst.active) {
-                activate(inst);
-            } else if (inst.loaded && !renderer.lost) {
+            // Deliberately do NOT set inst.dirty here: tick()'s sprite branch derives the
+            // frame index from scrubProgress and marks dirty (redrawing the ~8-megapixel
+            // hero canvas) only when the quantised frame actually crosses, so an
+            // unchanged frame is a near-free no-op rather than a full redraw every
+            // scrolled frame. Nor do we activate an inactive instance — activation runs
+            // loadSource() (a full sprite-sheet download, some sheets ~33MB decoded),
+            // which we must not trigger for off-screen tracks. The IntersectionObserver
+            // already observes this element (scan ran first) and activates it near the
+            // viewport; the stored scrubProgress/scrubOwned survive on the instance and
+            // apply on the first draw after activation (onImageReady marks dirty and kicks
+            // the loop). Only when the instance is already live do we draw the new frame.
+            if (inst.active && inst.loaded && !renderer.lost) {
                 // Draw synchronously so the frame lands in the same scroll frame —
                 // no extra rAF hop that would leave the sprite a beat behind.
                 inst.tick(0);
-            } else {
-                renderLoopKick();
             }
         },
         /** Re-scan a scope for halftone wrappers (used by the SPA navigation). */
@@ -1010,8 +1079,13 @@ void main() {
  * out of its scrub window (progress clamped at 0), so the sprite stays smooth AND
  * stays calibrated to the track's settled position.
  *
- * Re-runnable for Barba navigation: the window listeners are bound once, but the
- * tracked items are recomputed by init() against the freshly-swapped <main>.
+ * Re-runnable for Barba navigation: the window listeners are bound once and survive
+ * every swap, but the tracked items are page-specific. init() rebuilds them against
+ * the freshly-swapped <main>; destroy() empties the list (and cancels any in-flight
+ * rAF tick) the moment the outgoing page starts tearing down. Without that, during
+ * the ~1.1s transition the still-live scroll listener would keep driving update()
+ * against the old page's cached items — detached, `position: fixed`-frozen nodes
+ * whose rects have collapsed — until the next init() finally replaces them.
  */
 (function () {
     'use strict';
@@ -1065,6 +1139,10 @@ void main() {
     let items = [];   // refreshed per page
     let ticking = false;
     let measuring = false;
+    // rAF handles for the two coalesced ticks, so destroy() can cancel a frame that
+    // the outgoing page queued before it can fire against a torn-down / rebuilt list.
+    let tickRAF = 0;
+    let measureRAF = 0;
 
     const scrollTop = () => window.scrollY || window.pageYOffset || 0;
 
@@ -1101,7 +1179,7 @@ void main() {
     function onScroll() {
         if (ticking) return;
         ticking = true;
-        requestAnimationFrame(update);
+        tickRAF = requestAnimationFrame(update);
     }
 
     // Geometry may have changed (viewport resize, or a late reflow above a track).
@@ -1111,7 +1189,7 @@ void main() {
     function remeasure() {
         if (measuring) return;
         measuring = true;
-        requestAnimationFrame(() => {
+        measureRAF = requestAnimationFrame(() => {
             measuring = false;
             resolveMargins();
             measure();
@@ -1134,6 +1212,24 @@ void main() {
         update();
     }
 
+    // Called by the registry before each Barba navigation. The window listeners stay
+    // bound (they're designed to survive swaps), so the only thing to do is starve
+    // them: empty `items` — which turns update()/measure() into no-ops — then cancel
+    // any tick the outgoing page has already queued and reset the guards. Emptying
+    // `items` alone would make a stale frame harmless; cancelling it outright plus
+    // clearing ticking/measuring leaves the module in a known-idle state so the next
+    // page's first onScroll/remeasure schedules cleanly, without depending on a
+    // leftover frame firing to clear the guards for it.
+    function destroy() {
+        items = [];
+        if (tickRAF) cancelAnimationFrame(tickRAF);
+        if (measureRAF) cancelAnimationFrame(measureRAF);
+        tickRAF = 0;
+        measureRAF = 0;
+        ticking = false;
+        measuring = false;
+    }
+
     // Bind listeners exactly once; they read the live `items`. Scroll repaints from
     // the cache (no layout read); resize/load/layout events re-cache first.
     window.addEventListener('scroll', onScroll, { passive: true });
@@ -1143,7 +1239,7 @@ void main() {
     // the cached track offsets stay calibrated.
     window.addEventListener('zoku:layout', remeasure);
 
-    if (window.ZokuPage) window.ZokuPage.register({ init });
+    if (window.ZokuPage) window.ZokuPage.register({ init, destroy });
     else init(document);
 })();
 

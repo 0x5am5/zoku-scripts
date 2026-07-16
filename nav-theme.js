@@ -39,6 +39,14 @@
     };
 
     let frame = null;
+
+    // Last surface the probe matched. update() runs every scrolled frame, but the
+    // section under the nav only changes when the reader crosses a boundary; the
+    // isLightSurface() getComputedStyle walk + classList.toggle below are pure
+    // functions of that section (its background is static), so while `current`
+    // stays the same element there is nothing to recompute. Reset in refresh().
+    let lastSurface = null;
+
     const update = () => {
         frame = null;
         if (!surfaces.length) return;
@@ -53,7 +61,14 @@
                 break;
             }
         }
+        // No surface under the probe (a gap between sections): leave the nav as it
+        // is and, deliberately, leave the cache untouched. The class already
+        // reflects the last matched surface, so re-entering that same surface stays
+        // a no-op rather than forcing a needless isLightSurface() walk.
         if (!current) return;
+
+        if (current === lastSurface) return;   // same section as last frame — nothing to recompute
+        lastSurface = current;
 
         nav.classList.toggle('cc-light', isLightSurface(current));
     };
@@ -87,6 +102,9 @@
             ...(main ? Array.from(main.children) : []),
             ...Array.from(document.querySelectorAll('.footer')),
         ].filter(Boolean);
+        // The section list (and the footer variant) is rebuilt on every SPA swap, so
+        // a stale element reference must not short-circuit the first post-swap probe.
+        lastSurface = null;
         update();
     };
 

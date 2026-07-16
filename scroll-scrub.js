@@ -22,8 +22,13 @@
  * out of its scrub window (progress clamped at 0), so the sprite stays smooth AND
  * stays calibrated to the track's settled position.
  *
- * Re-runnable for Barba navigation: the window listeners are bound once, but the
- * tracked items are recomputed by init() against the freshly-swapped <main>.
+ * Re-runnable for Barba navigation: the window listeners are bound once and survive
+ * every swap, but the tracked items are page-specific. init() rebuilds them against
+ * the freshly-swapped <main>; destroy() empties the list (and cancels any in-flight
+ * rAF tick) the moment the outgoing page starts tearing down. Without that, during
+ * the ~1.1s transition the still-live scroll listener would keep driving update()
+ * against the old page's cached items — detached, `position: fixed`-frozen nodes
+ * whose rects have collapsed — until the next init() finally replaces them.
  */
 (function () {
     'use strict';
@@ -77,6 +82,10 @@
     let items = [];   // refreshed per page
     let ticking = false;
     let measuring = false;
+    // rAF handles for the two coalesced ticks, so destroy() can cancel a frame that
+    // the outgoing page queued before it can fire against a torn-down / rebuilt list.
+    let tickRAF = 0;
+    let measureRAF = 0;
 
     const scrollTop = () => window.scrollY || window.pageYOffset || 0;
 
@@ -113,7 +122,7 @@
     function onScroll() {
         if (ticking) return;
         ticking = true;
-        requestAnimationFrame(update);
+        tickRAF = requestAnimationFrame(update);
     }
 
     // Geometry may have changed (viewport resize, or a late reflow above a track).
@@ -123,7 +132,7 @@
     function remeasure() {
         if (measuring) return;
         measuring = true;
-        requestAnimationFrame(() => {
+        measureRAF = requestAnimationFrame(() => {
             measuring = false;
             resolveMargins();
             measure();
@@ -146,6 +155,24 @@
         update();
     }
 
+    // Called by the registry before each Barba navigation. The window listeners stay
+    // bound (they're designed to survive swaps), so the only thing to do is starve
+    // them: empty `items` — which turns update()/measure() into no-ops — then cancel
+    // any tick the outgoing page has already queued and reset the guards. Emptying
+    // `items` alone would make a stale frame harmless; cancelling it outright plus
+    // clearing ticking/measuring leaves the module in a known-idle state so the next
+    // page's first onScroll/remeasure schedules cleanly, without depending on a
+    // leftover frame firing to clear the guards for it.
+    function destroy() {
+        items = [];
+        if (tickRAF) cancelAnimationFrame(tickRAF);
+        if (measureRAF) cancelAnimationFrame(measureRAF);
+        tickRAF = 0;
+        measureRAF = 0;
+        ticking = false;
+        measuring = false;
+    }
+
     // Bind listeners exactly once; they read the live `items`. Scroll repaints from
     // the cache (no layout read); resize/load/layout events re-cache first.
     window.addEventListener('scroll', onScroll, { passive: true });
@@ -155,6 +182,6 @@
     // the cached track offsets stay calibrated.
     window.addEventListener('zoku:layout', remeasure);
 
-    if (window.ZokuPage) window.ZokuPage.register({ init });
+    if (window.ZokuPage) window.ZokuPage.register({ init, destroy });
     else init(document);
 })();

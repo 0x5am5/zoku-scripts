@@ -9,11 +9,15 @@
  * can re-run against the freshly-swapped <main> and tear down any global state
  * (window listeners, rAF loops, ScrollTriggers, Smooothy instances, WebGL).
  *
- * The transition itself is the rising "pixel band": a ~3/4-viewport-tall cloud of
- * dark + brand-purple pixels that dissolves in from transparent and sweeps
+ * The transition itself is the rising "pixel band": a single full-viewport
+ * <canvas> onto which a ~3/4-viewport-tall cloud of dark + brand-purple pixels is
+ * repainted each frame — the cloud dissolves in from transparent and sweeps
  * bottom -> top while the next page is revealed underneath it (Barba `sync` keeps
- * both pages in the DOM at once). Honours prefers-reduced-motion (instant swap)
- * and degrades to ordinary navigation with no JS / no Barba.
+ * both pages in the DOM at once). A single canvas replaces the former CSS-grid of
+ * hundreds of <span> cells, each of which had its opacity written every frame;
+ * now one clearRect + a handful of fillRects paints the whole band. Honours
+ * prefers-reduced-motion (instant swap) and degrades to ordinary navigation with
+ * no JS / no Barba.
  *
  * Module contract:
  *   window.ZokuPage.register({ init(scope), destroy() })
@@ -72,9 +76,13 @@
      * the bundle arrives, we init the newly-registered modules once here, and every
      * subsequent swap goes through the normal initAll() path.
      *
+     * jsDelivr auto-minifies tagged files, so we point at the .min.js build
+     * (~7KB gzipped vs ~17KB for the readable source) — identical behaviour,
+     * smaller payload on the pages that actually pull the halftone bundle.
      * The pinned tag below is stamped from the repo-root VERSION file by
-     * build.sh — do NOT edit it by hand; bump VERSION and run ./build.sh. */
-    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.4.0/zoku-halftone.js';
+     * build.sh (its sed rewrites only the @vX.Y.Z tag, never the filename) — do
+     * NOT edit it by hand; bump VERSION and run ./build.sh. */
+    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.4.1/zoku-halftone.min.js';
     let halftoneLoaded = false;
     let halftoneLoading = false;
     const ensureHalftone = (scope) => {
@@ -102,7 +110,7 @@
         document.head.appendChild(s);
     };
 
-    /* ── Rising pixel-band overlay ─────────────────────────────────────────── */
+    /* ── Rising pixel-band overlay (single <canvas>) ───────────────────────── */
     const PIXEL = { desktop: 60, mobile: 42 }; // grid cell px
     const BAND_FRACTION = 0.75;                 // band height as a fraction of the viewport
     const DITHER_SHARP = 3.2;                   // per-pixel fade softness (lower = wider dissolve)
@@ -111,43 +119,78 @@
     const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 
-    let overlay = null;
-    let pixels = [];
+    let canvas = null;   // the single overlay <canvas>
+    let ctx = null;      // its 2D context (scaled so we draw in CSS pixels)
+    let cells = [];      // { x, y, rowF, rand, fill } per grid cell
+    let cellSize = 0;    // grid cell edge in CSS px (set by buildBand)
+    let viewW = 0;       // build-time viewport width  (CSS px), for clearRect
+    let viewH = 0;       // build-time viewport height (CSS px), for clearRect
 
-    /** (Re)build the pixel grid sized to the current viewport, re-rolling colours. */
+    /**
+     * (Re)build the pixel grid sized to the current viewport, re-rolling colours.
+     *
+     * The band is one <canvas> rather than a grid of DOM cells: buildBand sizes
+     * the backing store to the viewport (devicePixelRatio capped at 2 for
+     * crispness without a 4x fill cost on retina), scales the context so all
+     * drawing is in CSS pixels, then rebuilds the flat `cells` array — position,
+     * row fraction, per-cell dissolve threshold and a precomputed solid fill
+     * string. Called once per navigation.
+     */
     const buildBand = () => {
-        if (!overlay) {
-            overlay = document.createElement('div');
-            overlay.className = 'zoku-band';
-            overlay.setAttribute('aria-hidden', 'true');
-            document.body.appendChild(overlay);
+        if (!canvas) {
+            canvas = document.createElement('canvas');
+            // Keep the class so the existing head CSS (.zoku-band { position:fixed;
+            // inset:0; z-index:10000; … }) still harmlessly applies, but ALSO set
+            // every needed style inline so the module is self-sufficient if that
+            // CSS block is ever removed.
+            canvas.className = 'zoku-band';
+            canvas.setAttribute('aria-hidden', 'true');
+            const s = canvas.style;
+            s.position = 'fixed';
+            s.inset = '0';
+            s.zIndex = '10000';
+            s.pointerEvents = 'none';
+            s.display = 'none';
+            s.width = '100%';   // map the backing store onto the full viewport
+            s.height = '100%';
+            document.body.appendChild(canvas);
+            ctx = canvas.getContext('2d');
         }
-        const size = window.innerWidth < 480 ? PIXEL.mobile : PIXEL.desktop;
-        const cols = Math.ceil(window.innerWidth / size);
-        const rows = Math.ceil(window.innerHeight / size);
-        overlay.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-        overlay.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
-        overlay.textContent = '';
 
-        pixels = [];
-        const frag = document.createDocumentFragment();
+        viewW = window.innerWidth;
+        viewH = window.innerHeight;
+        const dpr = Math.min(window.devicePixelRatio || 1, 2); // cap backing store at 2x
+        canvas.width = Math.round(viewW * dpr);
+        canvas.height = Math.round(viewH * dpr);
+        // Draw everything in CSS px; the dpr scale keeps edges crisp on retina.
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        cellSize = viewW < 480 ? PIXEL.mobile : PIXEL.desktop;
+        const cols = Math.ceil(viewW / cellSize);
+        const rows = Math.ceil(viewH / cellSize);
+
+        cells = [];
         for (let r = 0; r < rows; r++) {
             const rowF = (r + 0.5) / rows;
             for (let c = 0; c < cols; c++) {
-                const el = document.createElement('span');
-                el.className = 'zoku-band_px';
+                // ~half the cells are brand purple; the rest are dark. The dark
+                // #161616 previously came from the CSS `.zoku-band_px` rule — the
+                // canvas paints every cell explicitly, so it must be set here now.
+                let fill = '#161616';
                 if (Math.random() < PURPLE_RATIO) {
                     const l = clamp(58 + (Math.random() * 40 - 20), 30, 88);
-                    el.style.background = `hsl(${HUE} ${SAT}% ${l}%)`;
+                    fill = `hsl(${HUE} ${SAT}% ${l}%)`;
                 }
-                el.style.opacity = '0';
-                frag.appendChild(el);
-                // rand = this pixel's personal dissolve threshold, so pixels fade
+                // rand = this cell's personal dissolve threshold, so cells fade
                 // in from transparent at different moments (no clean band edge).
-                pixels.push({ el, rowF, rand: Math.random() });
+                // Cells are painted `cellSize × cellSize` at (c,r)·cellSize; the
+                // last column/row overruns the viewport edge (clipped by the
+                // canvas bounds) — the old 1fr grid instead compressed cells to
+                // fit exactly. Coverage is identical; edge geometry differs by
+                // sub-cell amounts, which the dissolve hides.
+                cells.push({ x: c * cellSize, y: r * cellSize, rowF, rand: Math.random(), fill });
             }
         }
-        overlay.appendChild(frag);
     };
 
     /**
@@ -155,17 +198,29 @@
      * it). The incoming page sits in normal flow beneath everything; we reveal it
      * by clipping the frozen OUTGOING page away from the bottom up, tracking the
      * rising band centre — so the new page shows through underneath the band.
+     *
+     * Each frame clears the canvas, then paints only the currently-visible cells:
+     * the density bell + per-cell dither yields the same opacity `o` as the old
+     * per-span version, but cells with o <= 0 (the great majority for most of the
+     * sweep) are skipped entirely rather than written with opacity 0. Visible
+     * cells are drawn with ctx.globalAlpha = o and the cell's precomputed solid
+     * fillStyle (no rgba string is built per frame).
      */
     const setProgress = (p, oldEl, scrollY) => {
         const bh = BAND_FRACTION;
         const half = bh / 2;
         const cf = (1 + half) - p * (1 + bh); // band centre fraction travels up
-        for (let i = 0; i < pixels.length; i++) {
-            const px = pixels[i];
-            const target = 1 - Math.abs(px.rowF - cf) / half; // density bell, 1 centre -> 0 edges
-            const o = (target - px.rand) * DITHER_SHARP + 0.5; // per-pixel dithered fade
-            px.el.style.opacity = (o < 0 ? 0 : o > 1 ? 1 : o).toFixed(3);
+        ctx.clearRect(0, 0, viewW, viewH);
+        for (let i = 0; i < cells.length; i++) {
+            const cell = cells[i];
+            const target = 1 - Math.abs(cell.rowF - cf) / half; // density bell, 1 centre -> 0 edges
+            const o = (target - cell.rand) * DITHER_SHARP + 0.5; // per-cell dithered fade
+            if (o <= 0) continue; // transparent — skip (most cells, most frames)
+            ctx.globalAlpha = o > 1 ? 1 : o;
+            ctx.fillStyle = cell.fill;
+            ctx.fillRect(cell.x, cell.y, cellSize, cellSize);
         }
+        ctx.globalAlpha = 1; // leave the context in a known state
         if (oldEl) {
             // Reveal the new page by clipping the frozen outgoing page along the
             // rising band centre. The clip MUST be expressed in viewport pixels, not
@@ -194,7 +249,7 @@
         const scrollY = opts.scrollY || 0;
         return new Promise((resolve) => {
             buildBand();
-            overlay.style.display = 'grid';
+            canvas.style.display = 'block';
 
             // The band sweep drives `enter()`, which Barba awaits before firing
             // `afterEnter` — and afterEnter is what removes the outgoing <main>,
@@ -218,7 +273,7 @@
                 // Old page ends fully clipped — do NOT un-clip it (that would
                 // flash the outgoing page back over the new one). Barba removes it.
                 setProgress(1, oldEl, scrollY);
-                overlay.style.display = 'none';
+                canvas.style.display = 'none';
                 resolve();
             };
 
@@ -387,6 +442,25 @@
             return;
         }
 
+        // First-load init MUST run exactly once. Verified against @barba/core
+        // 2.10.3 (dist/barba.umd.js): barba.init() calls `this.once(data)`
+        // synchronously, whose promise chain is
+        //   beforeEnter → (if a `once` transition exists) doOnce → afterEnter
+        // and afterEnter runs UNCONDITIONALLY — `return i && i.then ? i.then(r) : r()`,
+        // where r() invokes the afterEnter hook — even though we define no `once`
+        // transition. On that initial firing Barba passes a fresh schemaPage as
+        // `data.current`, so `data.current.container` is null (real navigations
+        // always carry the outgoing container); `data.next` holds the real first
+        // page (container + html). The once() chain is kicked off synchronously
+        // inside init() but resolves on a microtask, so the ACTUAL order is:
+        //   1. the explicit initPage(document) at the end of start() (synchronous)
+        //   2. the afterEnter hook, one microtask later, with a null current.
+        // Without a guard every module would init twice and ScrollTrigger.refresh()
+        // (a full layout pass) would run back-to-back on first load. The flag makes
+        // whichever path runs first the one that inits; the other no-ops. It is
+        // robust to either order in case a future Barba/plugin change reverses it.
+        let firstInitDone = false;
+
         window.barba.init({
             sync: true, // keep current + next containers in the DOM together
             transitions: [{
@@ -432,6 +506,17 @@
             }
         });
         window.barba.hooks.afterEnter((data) => {
+            // A real navigation always carries the outgoing container; the initial
+            // firing during barba.init() does not (see the note above). Skip the
+            // whole body on a DUPLICATE initial call — scroll reset, syncFooter and
+            // initPage are all redundant once first-load init has already run (the
+            // live footer already holds the entry page's own variant on a direct
+            // load). Real navigations always run the full body regardless.
+            const isInitial = !(data.current && data.current.container);
+            if (isInitial) {
+                if (firstInitDone) return;
+                firstInitDone = true;
+            }
             forceManualScroll(); // before the browser's async restore can fire
             window.scrollTo(0, 0);
             // Update the persistent footer BEFORE initPage: nav-theme.refresh()
@@ -454,8 +539,14 @@
             });
         });
 
-        // First page load — Barba does not run a transition for it.
-        initPage(document);
+        // First page load — Barba does not run a transition for it. Run the
+        // per-page init here UNLESS the initial afterEnter already beat us to it
+        // (it normally does not — see the note above — but the guard keeps init
+        // to exactly one run either way).
+        if (!firstInitDone) {
+            firstInitDone = true;
+            initPage(document);
+        }
     };
 
     // This file is loaded as a `defer` script, so when it executes the document

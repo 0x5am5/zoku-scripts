@@ -12,11 +12,15 @@
  * can re-run against the freshly-swapped <main> and tear down any global state
  * (window listeners, rAF loops, ScrollTriggers, Smooothy instances, WebGL).
  *
- * The transition itself is the rising "pixel band": a ~3/4-viewport-tall cloud of
- * dark + brand-purple pixels that dissolves in from transparent and sweeps
+ * The transition itself is the rising "pixel band": a single full-viewport
+ * <canvas> onto which a ~3/4-viewport-tall cloud of dark + brand-purple pixels is
+ * repainted each frame — the cloud dissolves in from transparent and sweeps
  * bottom -> top while the next page is revealed underneath it (Barba `sync` keeps
- * both pages in the DOM at once). Honours prefers-reduced-motion (instant swap)
- * and degrades to ordinary navigation with no JS / no Barba.
+ * both pages in the DOM at once). A single canvas replaces the former CSS-grid of
+ * hundreds of <span> cells, each of which had its opacity written every frame;
+ * now one clearRect + a handful of fillRects paints the whole band. Honours
+ * prefers-reduced-motion (instant swap) and degrades to ordinary navigation with
+ * no JS / no Barba.
  *
  * Module contract:
  *   window.ZokuPage.register({ init(scope), destroy() })
@@ -75,9 +79,13 @@
      * the bundle arrives, we init the newly-registered modules once here, and every
      * subsequent swap goes through the normal initAll() path.
      *
+     * jsDelivr auto-minifies tagged files, so we point at the .min.js build
+     * (~7KB gzipped vs ~17KB for the readable source) — identical behaviour,
+     * smaller payload on the pages that actually pull the halftone bundle.
      * The pinned tag below is stamped from the repo-root VERSION file by
-     * build.sh — do NOT edit it by hand; bump VERSION and run ./build.sh. */
-    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.4.0/zoku-halftone.js';
+     * build.sh (its sed rewrites only the @vX.Y.Z tag, never the filename) — do
+     * NOT edit it by hand; bump VERSION and run ./build.sh. */
+    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.4.1/zoku-halftone.min.js';
     let halftoneLoaded = false;
     let halftoneLoading = false;
     const ensureHalftone = (scope) => {
@@ -105,7 +113,7 @@
         document.head.appendChild(s);
     };
 
-    /* ── Rising pixel-band overlay ─────────────────────────────────────────── */
+    /* ── Rising pixel-band overlay (single <canvas>) ───────────────────────── */
     const PIXEL = { desktop: 60, mobile: 42 }; // grid cell px
     const BAND_FRACTION = 0.75;                 // band height as a fraction of the viewport
     const DITHER_SHARP = 3.2;                   // per-pixel fade softness (lower = wider dissolve)
@@ -114,43 +122,78 @@
     const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 
-    let overlay = null;
-    let pixels = [];
+    let canvas = null;   // the single overlay <canvas>
+    let ctx = null;      // its 2D context (scaled so we draw in CSS pixels)
+    let cells = [];      // { x, y, rowF, rand, fill } per grid cell
+    let cellSize = 0;    // grid cell edge in CSS px (set by buildBand)
+    let viewW = 0;       // build-time viewport width  (CSS px), for clearRect
+    let viewH = 0;       // build-time viewport height (CSS px), for clearRect
 
-    /** (Re)build the pixel grid sized to the current viewport, re-rolling colours. */
+    /**
+     * (Re)build the pixel grid sized to the current viewport, re-rolling colours.
+     *
+     * The band is one <canvas> rather than a grid of DOM cells: buildBand sizes
+     * the backing store to the viewport (devicePixelRatio capped at 2 for
+     * crispness without a 4x fill cost on retina), scales the context so all
+     * drawing is in CSS pixels, then rebuilds the flat `cells` array — position,
+     * row fraction, per-cell dissolve threshold and a precomputed solid fill
+     * string. Called once per navigation.
+     */
     const buildBand = () => {
-        if (!overlay) {
-            overlay = document.createElement('div');
-            overlay.className = 'zoku-band';
-            overlay.setAttribute('aria-hidden', 'true');
-            document.body.appendChild(overlay);
+        if (!canvas) {
+            canvas = document.createElement('canvas');
+            // Keep the class so the existing head CSS (.zoku-band { position:fixed;
+            // inset:0; z-index:10000; … }) still harmlessly applies, but ALSO set
+            // every needed style inline so the module is self-sufficient if that
+            // CSS block is ever removed.
+            canvas.className = 'zoku-band';
+            canvas.setAttribute('aria-hidden', 'true');
+            const s = canvas.style;
+            s.position = 'fixed';
+            s.inset = '0';
+            s.zIndex = '10000';
+            s.pointerEvents = 'none';
+            s.display = 'none';
+            s.width = '100%';   // map the backing store onto the full viewport
+            s.height = '100%';
+            document.body.appendChild(canvas);
+            ctx = canvas.getContext('2d');
         }
-        const size = window.innerWidth < 480 ? PIXEL.mobile : PIXEL.desktop;
-        const cols = Math.ceil(window.innerWidth / size);
-        const rows = Math.ceil(window.innerHeight / size);
-        overlay.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-        overlay.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
-        overlay.textContent = '';
 
-        pixels = [];
-        const frag = document.createDocumentFragment();
+        viewW = window.innerWidth;
+        viewH = window.innerHeight;
+        const dpr = Math.min(window.devicePixelRatio || 1, 2); // cap backing store at 2x
+        canvas.width = Math.round(viewW * dpr);
+        canvas.height = Math.round(viewH * dpr);
+        // Draw everything in CSS px; the dpr scale keeps edges crisp on retina.
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        cellSize = viewW < 480 ? PIXEL.mobile : PIXEL.desktop;
+        const cols = Math.ceil(viewW / cellSize);
+        const rows = Math.ceil(viewH / cellSize);
+
+        cells = [];
         for (let r = 0; r < rows; r++) {
             const rowF = (r + 0.5) / rows;
             for (let c = 0; c < cols; c++) {
-                const el = document.createElement('span');
-                el.className = 'zoku-band_px';
+                // ~half the cells are brand purple; the rest are dark. The dark
+                // #161616 previously came from the CSS `.zoku-band_px` rule — the
+                // canvas paints every cell explicitly, so it must be set here now.
+                let fill = '#161616';
                 if (Math.random() < PURPLE_RATIO) {
                     const l = clamp(58 + (Math.random() * 40 - 20), 30, 88);
-                    el.style.background = `hsl(${HUE} ${SAT}% ${l}%)`;
+                    fill = `hsl(${HUE} ${SAT}% ${l}%)`;
                 }
-                el.style.opacity = '0';
-                frag.appendChild(el);
-                // rand = this pixel's personal dissolve threshold, so pixels fade
+                // rand = this cell's personal dissolve threshold, so cells fade
                 // in from transparent at different moments (no clean band edge).
-                pixels.push({ el, rowF, rand: Math.random() });
+                // Cells are painted `cellSize × cellSize` at (c,r)·cellSize; the
+                // last column/row overruns the viewport edge (clipped by the
+                // canvas bounds) — the old 1fr grid instead compressed cells to
+                // fit exactly. Coverage is identical; edge geometry differs by
+                // sub-cell amounts, which the dissolve hides.
+                cells.push({ x: c * cellSize, y: r * cellSize, rowF, rand: Math.random(), fill });
             }
         }
-        overlay.appendChild(frag);
     };
 
     /**
@@ -158,17 +201,29 @@
      * it). The incoming page sits in normal flow beneath everything; we reveal it
      * by clipping the frozen OUTGOING page away from the bottom up, tracking the
      * rising band centre — so the new page shows through underneath the band.
+     *
+     * Each frame clears the canvas, then paints only the currently-visible cells:
+     * the density bell + per-cell dither yields the same opacity `o` as the old
+     * per-span version, but cells with o <= 0 (the great majority for most of the
+     * sweep) are skipped entirely rather than written with opacity 0. Visible
+     * cells are drawn with ctx.globalAlpha = o and the cell's precomputed solid
+     * fillStyle (no rgba string is built per frame).
      */
     const setProgress = (p, oldEl, scrollY) => {
         const bh = BAND_FRACTION;
         const half = bh / 2;
         const cf = (1 + half) - p * (1 + bh); // band centre fraction travels up
-        for (let i = 0; i < pixels.length; i++) {
-            const px = pixels[i];
-            const target = 1 - Math.abs(px.rowF - cf) / half; // density bell, 1 centre -> 0 edges
-            const o = (target - px.rand) * DITHER_SHARP + 0.5; // per-pixel dithered fade
-            px.el.style.opacity = (o < 0 ? 0 : o > 1 ? 1 : o).toFixed(3);
+        ctx.clearRect(0, 0, viewW, viewH);
+        for (let i = 0; i < cells.length; i++) {
+            const cell = cells[i];
+            const target = 1 - Math.abs(cell.rowF - cf) / half; // density bell, 1 centre -> 0 edges
+            const o = (target - cell.rand) * DITHER_SHARP + 0.5; // per-cell dithered fade
+            if (o <= 0) continue; // transparent — skip (most cells, most frames)
+            ctx.globalAlpha = o > 1 ? 1 : o;
+            ctx.fillStyle = cell.fill;
+            ctx.fillRect(cell.x, cell.y, cellSize, cellSize);
         }
+        ctx.globalAlpha = 1; // leave the context in a known state
         if (oldEl) {
             // Reveal the new page by clipping the frozen outgoing page along the
             // rising band centre. The clip MUST be expressed in viewport pixels, not
@@ -197,7 +252,7 @@
         const scrollY = opts.scrollY || 0;
         return new Promise((resolve) => {
             buildBand();
-            overlay.style.display = 'grid';
+            canvas.style.display = 'block';
 
             // The band sweep drives `enter()`, which Barba awaits before firing
             // `afterEnter` — and afterEnter is what removes the outgoing <main>,
@@ -221,7 +276,7 @@
                 // Old page ends fully clipped — do NOT un-clip it (that would
                 // flash the outgoing page back over the new one). Barba removes it.
                 setProgress(1, oldEl, scrollY);
-                overlay.style.display = 'none';
+                canvas.style.display = 'none';
                 resolve();
             };
 
@@ -390,6 +445,25 @@
             return;
         }
 
+        // First-load init MUST run exactly once. Verified against @barba/core
+        // 2.10.3 (dist/barba.umd.js): barba.init() calls `this.once(data)`
+        // synchronously, whose promise chain is
+        //   beforeEnter → (if a `once` transition exists) doOnce → afterEnter
+        // and afterEnter runs UNCONDITIONALLY — `return i && i.then ? i.then(r) : r()`,
+        // where r() invokes the afterEnter hook — even though we define no `once`
+        // transition. On that initial firing Barba passes a fresh schemaPage as
+        // `data.current`, so `data.current.container` is null (real navigations
+        // always carry the outgoing container); `data.next` holds the real first
+        // page (container + html). The once() chain is kicked off synchronously
+        // inside init() but resolves on a microtask, so the ACTUAL order is:
+        //   1. the explicit initPage(document) at the end of start() (synchronous)
+        //   2. the afterEnter hook, one microtask later, with a null current.
+        // Without a guard every module would init twice and ScrollTrigger.refresh()
+        // (a full layout pass) would run back-to-back on first load. The flag makes
+        // whichever path runs first the one that inits; the other no-ops. It is
+        // robust to either order in case a future Barba/plugin change reverses it.
+        let firstInitDone = false;
+
         window.barba.init({
             sync: true, // keep current + next containers in the DOM together
             transitions: [{
@@ -435,6 +509,17 @@
             }
         });
         window.barba.hooks.afterEnter((data) => {
+            // A real navigation always carries the outgoing container; the initial
+            // firing during barba.init() does not (see the note above). Skip the
+            // whole body on a DUPLICATE initial call — scroll reset, syncFooter and
+            // initPage are all redundant once first-load init has already run (the
+            // live footer already holds the entry page's own variant on a direct
+            // load). Real navigations always run the full body regardless.
+            const isInitial = !(data.current && data.current.container);
+            if (isInitial) {
+                if (firstInitDone) return;
+                firstInitDone = true;
+            }
             forceManualScroll(); // before the browser's async restore can fire
             window.scrollTo(0, 0);
             // Update the persistent footer BEFORE initPage: nav-theme.refresh()
@@ -457,8 +542,14 @@
             });
         });
 
-        // First page load — Barba does not run a transition for it.
-        initPage(document);
+        // First page load — Barba does not run a transition for it. Run the
+        // per-page init here UNLESS the initial afterEnter already beat us to it
+        // (it normally does not — see the note above — but the guard keeps init
+        // to exactly one run either way).
+        if (!firstInitDone) {
+            firstInitDone = true;
+            initPage(document);
+        }
     };
 
     // This file is loaded as a `defer` script, so when it executes the document
@@ -862,6 +953,14 @@
     };
 
     let frame = null;
+
+    // Last surface the probe matched. update() runs every scrolled frame, but the
+    // section under the nav only changes when the reader crosses a boundary; the
+    // isLightSurface() getComputedStyle walk + classList.toggle below are pure
+    // functions of that section (its background is static), so while `current`
+    // stays the same element there is nothing to recompute. Reset in refresh().
+    let lastSurface = null;
+
     const update = () => {
         frame = null;
         if (!surfaces.length) return;
@@ -876,7 +975,14 @@
                 break;
             }
         }
+        // No surface under the probe (a gap between sections): leave the nav as it
+        // is and, deliberately, leave the cache untouched. The class already
+        // reflects the last matched surface, so re-entering that same surface stays
+        // a no-op rather than forcing a needless isLightSurface() walk.
         if (!current) return;
+
+        if (current === lastSurface) return;   // same section as last frame — nothing to recompute
+        lastSurface = current;
 
         nav.classList.toggle('cc-light', isLightSurface(current));
     };
@@ -910,6 +1016,9 @@
             ...(main ? Array.from(main.children) : []),
             ...Array.from(document.querySelectorAll('.footer')),
         ].filter(Boolean);
+        // The section list (and the footer variant) is rebuilt on every SPA swap, so
+        // a stale element reference must not short-circuit the first post-swap probe.
+        lastSurface = null;
         update();
     };
 
@@ -1184,6 +1293,19 @@
             }
         }
 
+        // LCP fallback handoff: styles.css reveals the lines via a bounded CSS
+        // animation (zoku-hero-reveal-fallback, 1.8s delay) in case this module
+        // is slow to arrive. If that reveal is already painting, adopt the
+        // visible state instead of replaying the intro (killing the animation
+        // without inlining opacity would snap the lines back to the pre-hide
+        // state and blink them off). Either way the animation must be cleared:
+        // a filled CSS animation overrides GSAP's inline styles, which would
+        // pin the lines visible and break the scroll-out fade.
+        const fallbackPainting = targets.some(
+            (el) => parseFloat(window.getComputedStyle(el).opacity) > 0.01
+        );
+        targets.forEach((el) => { el.style.animation = 'none'; });
+
         // No GSAP or reduced motion: reveal immediately, no animation. (CSS already
         // shows them under reduced-motion, but clear inline state defensively.)
         if (!gsap || prefersReduced) {
@@ -1191,6 +1313,17 @@
                 el.style.opacity = '1';
                 el.style.transform = 'none';
             });
+            return;
+        }
+
+        // CSS fallback got there first — adopt its end state and skip straight
+        // to the scroll scrub.
+        if (fallbackPainting) {
+            targets.forEach((el) => {
+                el.style.opacity = '1';
+                el.style.transform = 'none';
+            });
+            buildVisualScrub(section, bg, lines, cta);
             return;
         }
 
@@ -1917,30 +2050,49 @@
 /* ==== testimonials-slider.js ==== */
 /*
  * "What our clients think" carousel — powered by Smooothy.
- * https://github.com/vallafederico/smooothy (UMD global: window.Smooothy)
+ * https://github.com/vallafederico/smooothy (UMD global: window.Smooothy, v0.0.35)
  *
  * Each `.zoku-testimonials-rail_track` marked with [data-testimonials-slider]
  * becomes a Smooothy slider (lerped drag, momentum, free-scroll). The `//DRAG`
- * pill trails the cursor while the pointer is inside the rail. One shared rAF
- * loop drives every slider + pill.
+ * pill trails the cursor while the pointer is inside the rail.
+ *
+ * One shared rAF loop drives every slider + pill, but it is KICK-AND-IDLE, not
+ * always-on. It runs only while something is actually moving — a rail being
+ * dragged/touched, a rail whose animated `current` has not yet caught its
+ * `target`, or a pill easing toward the cursor — and stops itself (cancels the
+ * frame) the moment everything has settled. Any input that can create motion
+ * kicks it back to life: the pill's pointer handlers, wheel/trackpad scroll,
+ * window resize, and an IntersectionObserver that fires when a rail scrolls
+ * into view. This keeps the main thread idle on pages where the rail sits off
+ * screen or untouched.
+ *
+ * Why the IntersectionObserver: Smooothy's own update() no-ops while its wrapper
+ * is off screen (it self-gates on an internal IntersectionObserver — root:null,
+ * rootMargin 50px, threshold 0). If we treated an off-screen, mid-transit rail as
+ * "unsettled" the loop would spin forever making no progress, so we mirror that
+ * same observer here: rails only count toward "still moving" while visible, and a
+ * rail scrolling back into view re-kicks the loop so it finishes settling.
  *
  * Re-runnable for Barba navigation: init() builds the sliders for the current
- * <main>; destroy() cancels the rAF loop and tears down the Smooothy instances
- * (which self-bind window/drag listeners) so nothing leaks across page swaps.
+ * <main>; destroy() cancels the rAF loop, disconnects the observer and tears
+ * down the Smooothy instances (which self-bind window/drag listeners) so nothing
+ * leaks across page swaps.
  *
  * Conventions: targets data-attributes for JS hooks, exits early when nothing is
  * present, and respects prefers-reduced-motion (near-instant settle, no fade).
  */
 (function () {
-    let sliders = [];
-    let cleanups = []; // teardown for any window/element listeners we bind
+    let sliders = [];   // { s, track, visible } — s is the Smooothy instance
+    let cleanups = [];  // teardown for any window/element listeners we bind
+    let io = null;      // IntersectionObserver gating the loop to on-screen rails
     let rafId = 0;
 
     function destroy() {
         if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+        if (io) { io.disconnect(); io = null; }
         cleanups.forEach((fn) => fn());
         cleanups = [];
-        sliders.forEach((s) => { if (s && typeof s.destroy === 'function') s.destroy(); });
+        sliders.forEach((r) => { if (r.s && typeof r.s.destroy === 'function') r.s.destroy(); });
         sliders = [];
     }
 
@@ -1957,6 +2109,12 @@
 
         const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+        // Settled threshold for the loop's idle test, in Smooothy's slide-width
+        // units (current/target are multiplied by the item width to reach pixels).
+        // ~5e-4 of a card is well under a pixel for any realistic card width, so we
+        // stop the loop only once the motion is visually complete.
+        const SETTLE_EPS = 0.0005;
+
         const baseConfig = {
             infinite: false,
             // Free drag (no snap): a "drag to explore" bleed-rail, not a paginated
@@ -1971,7 +2129,7 @@
 
         tracks.forEach((track) => {
             if (!track.children.length) return; // a slider needs at least one slide
-            sliders.push(new Smooothy(track, Object.assign({}, baseConfig, {
+            const s = new Smooothy(track, Object.assign({}, baseConfig, {
                 // Stop the drag when the cards' trailing edge reaches the track's
                 // content-box right edge: wrapperWidth (incl. left rail-inset + right
                 // padding) minus both paddings = the content-box width = the exact
@@ -1982,60 +2140,107 @@
                         - (parseFloat(cs.paddingLeft) || 0)
                         - (parseFloat(cs.paddingRight) || 0);
                 },
-            })));
+            }));
+            sliders.push({ s, track, visible: false });
+
+            // Trackpad / mouse-wheel horizontal scroll moves the slider's target via
+            // Smooothy's internal virtual-scroll (even with scrollInput:false it reads
+            // deltaX) but fires no pointer event, so the pointer handlers below would
+            // miss it — kick the loop on wheel too. Passive: we only start the loop,
+            // never preventDefault.
+            const onWheel = () => kick();
+            track.addEventListener('wheel', onWheel, { passive: true });
+            cleanups.push(() => track.removeEventListener('wheel', onWheel));
         });
 
         if (!sliders.length) return;
 
+        // Mirror Smooothy's own visibility gate (root:null, rootMargin 50px,
+        // threshold 0) so our "visible" window matches the one that decides whether
+        // update() does anything. We (a) exclude off-screen rails from the settled
+        // test — update() can't progress them, so treating them as busy would spin
+        // the loop forever — and (b) re-kick when a rail scrolls back into view so a
+        // rail frozen mid-transit finishes settling.
+        const byTrack = new Map();
+        sliders.forEach((rec) => byTrack.set(rec.track, rec));
+        io = new IntersectionObserver((entries) => {
+            let entered = false;
+            entries.forEach((entry) => {
+                const rec = byTrack.get(entry.target);
+                if (!rec) return;
+                rec.visible = entry.isIntersecting;
+                if (entry.isIntersecting) entered = true;
+            });
+            if (entered) kick();
+        }, { root: null, rootMargin: '50px', threshold: 0 });
+        sliders.forEach((rec) => io.observe(rec.track));
+
         // --- //drag pill: fluid cursor trail ----------------------------------
-        // The pill eases toward the cursor each frame (a gentle lag). left/top carry
-        // no CSS transition; the rAF loop lerps them. Fades in on enter, out on leave.
+        // The pill eases toward the cursor each frame (a gentle lag). The rAF loop
+        // lerps its position; it fades in on enter, out on leave.
         const PILL_EASE = reduceMotion ? 1 : 0.14; // per-frame; lower = more trail
         const pills = [];
         (scope || document).querySelectorAll('.zoku-testimonials-rail_viewport').forEach((viewport) => {
             const pill = viewport.querySelector('.zoku-testimonials-rail_drag');
             if (!pill) return;
 
-            const s = { pill, viewport, tx: 0, ty: 0, x: 0, y: 0, active: false };
+            // The pill is centred and press-scaled entirely through its CSS
+            // `transform: translate(-50%,-50%) scale(var(--zoku-drag-scale,1))`.
+            // Writing inline `transform` from JS would clobber both, so we position
+            // it with the standalone CSS `translate` property, which composes on top
+            // of `transform` (and, unlike left/top, stays on the compositor — no
+            // per-frame layout). Zero the CSS left/top (they default to 50%/50%) so
+            // `translate: x y` is measured from the viewport's top-left corner and
+            // lands the pill's centre exactly at (x, y).
+            pill.style.left = '0';
+            pill.style.top = '0';
+
+            const p = { pill, viewport, tx: 0, ty: 0, x: 0, y: 0, active: false };
             const setTarget = (e) => {
                 const rect = viewport.getBoundingClientRect();
-                s.tx = e.clientX - rect.left;
-                s.ty = e.clientY - rect.top;
+                p.tx = e.clientX - rect.left;
+                p.ty = e.clientY - rect.top;
             };
 
+            const onMove = (e) => { setTarget(e); kick(); };
             const onEnter = (e) => {
                 setTarget(e);
-                s.x = s.tx;
-                s.y = s.ty; // snap on entry — no fly-in from a stale position
-                pill.style.left = s.x + 'px';
-                pill.style.top = s.y + 'px';
-                s.active = true;
+                p.x = p.tx;
+                p.y = p.ty; // snap on entry — no fly-in from a stale position
+                pill.style.translate = p.x + 'px ' + p.y + 'px';
+                p.active = true;
                 pill.classList.add('is-visible');
+                kick(); // start easing the pill toward the cursor
             };
             const onLeave = () => {
-                s.active = false;
+                p.active = false;
                 pill.classList.remove('is-visible');
             };
-            // Press the pill (shrink) the moment a drag begins on this rail.
-            const onDown = () => pill.classList.add('is-pressed');
+            // Press the pill (shrink) the moment a drag begins on this rail. The
+            // kick here also covers the drag itself starting the loop.
+            const onDown = () => { pill.classList.add('is-pressed'); kick(); };
 
             viewport.addEventListener('pointerenter', onEnter);
-            viewport.addEventListener('pointermove', setTarget);
+            viewport.addEventListener('pointermove', onMove);
             viewport.addEventListener('pointerleave', onLeave);
             viewport.addEventListener('pointerdown', onDown);
             cleanups.push(() => {
                 viewport.removeEventListener('pointerenter', onEnter);
-                viewport.removeEventListener('pointermove', setTarget);
+                viewport.removeEventListener('pointermove', onMove);
                 viewport.removeEventListener('pointerleave', onLeave);
                 viewport.removeEventListener('pointerdown', onDown);
             });
 
-            pills.push(s);
+            pills.push(p);
         });
 
         // Release every pressed pill on pointer up/cancel — bound to the window
         // so a release outside the rail (after dragging off it) still un-shrinks.
-        const releaseAll = () => pills.forEach((s) => s.pill.classList.remove('is-pressed'));
+        // No kick needed here: a drag keeps the loop alive throughout (isDragging /
+        // isTouching hold the settled test open every frame), and it keeps
+        // re-queuing while |target − current| > eps, so the loop is already running
+        // when the release lands and carries the post-release ease-back on its own.
+        const releaseAll = () => pills.forEach((p) => p.pill.classList.remove('is-pressed'));
         window.addEventListener('pointerup', releaseAll);
         window.addEventListener('pointercancel', releaseAll);
         cleanups.push(() => {
@@ -2043,20 +2248,48 @@
             window.removeEventListener('pointercancel', releaseAll);
         });
 
-        // Single shared animation loop: drives every slider, then trails the pills.
-        function tick() {
-            for (let i = 0; i < sliders.length; i += 1) sliders[i].update();
-            for (let i = 0; i < pills.length; i += 1) {
-                const s = pills[i];
-                if (!s.active) continue; // freeze in place while fading out
-                s.x += (s.tx - s.x) * PILL_EASE;
-                s.y += (s.ty - s.y) * PILL_EASE;
-                s.pill.style.left = s.x + 'px';
-                s.pill.style.top = s.y + 'px';
+        // Smooothy re-measures on resize (its own ResizeObserver); kick so any
+        // re-settle after a layout change is applied, then the loop idles again.
+        const onResize = () => kick();
+        window.addEventListener('resize', onResize);
+        cleanups.push(() => window.removeEventListener('resize', onResize));
+
+        // Is anything still in motion? True while a pill is easing, or a *visible*
+        // slider is being dragged/touched or has not yet eased to its target. Off-
+        // screen sliders are skipped: update() no-ops there, so they can't progress
+        // and must not hold the loop open (the observer re-kicks them on re-entry).
+        function anyActive() {
+            for (let i = 0; i < pills.length; i += 1) if (pills[i].active) return true;
+            for (let i = 0; i < sliders.length; i += 1) {
+                const rec = sliders[i];
+                if (!rec.visible) continue;
+                const s = rec.s;
+                if (s.isDragging || s.isTouching || Math.abs(s.target - s.current) > SETTLE_EPS) return true;
             }
-            rafId = requestAnimationFrame(tick);
+            return false;
         }
-        rafId = requestAnimationFrame(tick);
+
+        // Single shared animation loop: drives every slider, then trails the pills,
+        // then re-queues only while something is still moving — otherwise it stops
+        // and waits for the next kick().
+        function tick() {
+            for (let i = 0; i < sliders.length; i += 1) sliders[i].s.update();
+            for (let i = 0; i < pills.length; i += 1) {
+                const p = pills[i];
+                if (!p.active) continue; // freeze in place while fading out
+                p.x += (p.tx - p.x) * PILL_EASE;
+                p.y += (p.ty - p.y) * PILL_EASE;
+                p.pill.style.translate = p.x + 'px ' + p.y + 'px';
+            }
+            rafId = anyActive() ? requestAnimationFrame(tick) : 0;
+        }
+
+        // Start the loop if it is not already running (idempotent).
+        function kick() {
+            if (!rafId) rafId = requestAnimationFrame(tick);
+        }
+
+        kick(); // initial layout settle; idles immediately if nothing needs moving
     }
 
     if (window.ZokuPage) window.ZokuPage.register({ init, destroy });

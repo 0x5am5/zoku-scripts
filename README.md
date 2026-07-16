@@ -38,22 +38,24 @@ bundles that actually ship — do **not** edit the bundles by hand.
 
 ## Usage (jsDelivr)
 
-Production loads a single bundle, `zoku-core.js`, pinned to a tagged release. The core
-bundle fetches `zoku-halftone.js` on demand, so the WebGL shader never ships to pages
-that don't use it.
+Production loads a single bundle pinned to a tagged release — as **`zoku-core.min.js`**:
+jsDelivr auto-minifies the committed `zoku-core.js` on the fly (~7.5KB gzipped vs
+~31KB), so the repo keeps the readable bundle and the CDN serves the small one. The
+core bundle fetches `zoku-halftone.min.js` on demand, so the WebGL shader never ships
+to pages that don't use it.
 
 ```html
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.2.0/zoku-core.js" defer></script>
+<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.4.1/zoku-core.min.js" defer></script>
 ```
 
 `@main` always tracks the latest push (no retag needed, but not immutable):
 
 ```html
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@main/zoku-core.js" defer></script>
+<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@main/zoku-core.min.js" defer></script>
 ```
 
 > jsDelivr caches tagged URLs immutably. To force-refresh a `@main` URL after a push,
-> hit `https://purge.jsdelivr.net/gh/0x5am5/zoku-scripts@main/zoku-core.js` once.
+> hit `https://purge.jsdelivr.net/gh/0x5am5/zoku-scripts@main/zoku-core.min.js` once.
 
 ### Webflow
 
@@ -203,9 +205,13 @@ ZokuHalftone.setProgress(el, 0.5);
 ZokuHalftone.scan(scopeElement);
 ```
 
-`setProgress` draws synchronously so the frame lands in the same scroll frame as the
-caller — no rAF lag. You only need `scan()` when injecting halftone elements outside
-the Barba page lifecycle; `barba-init.js` already re-scans each swapped `<main>`.
+`setProgress` draws synchronously (when the instance is on screen and loaded) so the
+frame lands in the same scroll frame as the caller — no rAF lag — and it only actually
+redraws when the quantised sprite frame changes. Claiming an off-screen sprite is cheap
+and does **not** force its sheet to download: the instance stays lazy until the
+IntersectionObserver activates it near the viewport, then applies the stored progress.
+You only need `scan()` when injecting halftone elements outside the Barba page
+lifecycle; `barba-init.js` already re-scans each swapped `<main>`.
 
 ### Behaviour notes & gotchas
 
@@ -231,8 +237,13 @@ the Barba page lifecycle; `barba-init.js` already re-scans each swapped `<main>`
   to the cursor without trailing.
 - **Performance** — one shared WebGL2 context is multiplexed across every instance on
   the page (browsers cap live contexts at ~16), device-pixel ratio is capped at 2, and
-  instances only render while near the viewport. Context loss is handled: textures are
-  re-minted and re-uploaded on restore.
+  instances only render while near the viewport. Draws happen only when an instance's
+  pixels actually change: auto-played sprites redraw at their own fps (not per display
+  frame), scrubbed sprites only when the quantised frame crosses, and stills re-upload
+  their texture only when the source itself changes (not on resize/hover). The shared
+  GL canvas is sized grow-only so its framebuffer is never thrashed between
+  differently-sized instances. Context loss is handled: textures are re-minted and
+  re-uploaded on restore.
 
 ## Releasing a new version
 

@@ -1,5 +1,5 @@
 (function () {
-    let mm = null;          // gsap.matchMedia() for the pinned card deck (desktop + mobile)
+    let mm = null;          // gsap.matchMedia() for the pinned card deck (desktop only)
     let ledeTween = null;   // the lede fade-in (carries its own ScrollTrigger)
 
     function destroy() {
@@ -131,6 +131,14 @@
             // card one is pushed back — lifted, scaled down and dimmed like a shade.
             // fromTo with immediateRender:false so card one's recorded start is its
             // landed state, not the hidden set() above.
+            //
+            // The 0.15 beat is also load-bearing: ScrollTrigger renders a scrubbed
+            // timeline at progress 0 when the trigger is created (and on refresh),
+            // and immediateRender:false does not suppress THAT render. A fromTo
+            // child sitting at position 0 would paint its from values (card one
+            // landed, opaque) at first load, and the intro tween above would then
+            // lazily record them as its start — no-oping the whole deal-in. Any
+            // position > 0 keeps the creation render from touching the cards.
             tl.to(cardTwo, { yPercent: 0, opacity: 1, duration: 0.7 }, 0.15);
             tl.fromTo(cardOne,
                 { yPercent: 0, scale: 1, opacity: 1 },
@@ -159,73 +167,10 @@
             };
         });
 
-        // Mobile / tablet (≤991px): the layout is stacked, so the lede scrolls away
-        // normally and only the cards container is pinned (not the whole section).
-        // Two phases so card one animates IN without leaving a tall empty box to
-        // scroll past:
-        //   1. As the cards box scrolls up into view (bottom → top), card one deals
-        //      in — landing by the HALFWAY point of that travel, so it is visibly
-        //      gliding while the box crosses the lower quarter of the screen (a
-        //      full-travel scrub kept it below the fold / transparent until the box
-        //      was nearly at the top). Card two then starts rising behind it, its
-        //      frosted glass already overlapping card one before the pin engages.
-        //   2. The box pins at the top and card two finishes its rise over card one,
-        //      pushing it back into the dimmed shade.
-        mm.add('(max-width: 991px) and (prefers-reduced-motion: no-preference)', () => {
-            const stage = section.querySelector('.zoku-home-pillars_cards');
-            if (!stage) return;
-
-            stage.classList.add('cc-deck');
-            gsap.set([cardOne, cardTwo], hidden);
-
-            // Phase 1 — card one lands by 50% of the approach; card two rises to
-            // yPercent 60 (frost over card one's lower band) across the second half.
-            const intro = gsap.timeline({
-                defaults: { ease: 'power3.out' },
-                scrollTrigger: {
-                    trigger: stage,
-                    start: 'top bottom',
-                    end: () => 'top top+=' + navHeight(),
-                    scrub: 0.6,
-                    invalidateOnRefresh: true,
-                },
-            });
-            intro.to(cardOne, { yPercent: 0, opacity: 1, duration: 0.5 }, 0);
-            intro.to(cardTwo, { yPercent: 60, opacity: 1, duration: 0.5 }, 0.5);
-
-            // Phase 2 — pin the cards at the top; card two completes its deal-in
-            // over card one, which is pushed back. fromTos with immediateRender:false
-            // and explicit starts matching phase 1's end values, so the handoff at
-            // the pin point is seamless in both scroll directions.
-            const deck = gsap.timeline({
-                defaults: { ease: 'power3.out' },
-                scrollTrigger: {
-                    trigger: stage,
-                    start: () => 'top top+=' + navHeight(),
-                    end: '+=50%',
-                    scrub: 0.6,
-                    pin: stage,
-                    pinSpacing: true,
-                    // No anticipatePin — see the desktop deck above: it pins early
-                    // by scroll velocity and jolts the content up rather than
-                    // freezing it in place.
-                    invalidateOnRefresh: true,
-                },
-            });
-            deck.fromTo(cardTwo,
-                { yPercent: 60, opacity: 1 },
-                { yPercent: 0, duration: 0.5, immediateRender: false }, 0);
-            deck.fromTo(cardOne,
-                { yPercent: 0, scale: 1, opacity: 1 },
-                { yPercent: -8, scale: 0.94, opacity: 0.5, duration: 0.5, immediateRender: false }, 0);
-
-            return () => {
-                if (intro.scrollTrigger) intro.scrollTrigger.kill();
-                intro.kill();
-                stage.classList.remove('cc-deck');
-                gsap.set([cardOne, cardTwo], { clearProps: 'all' });
-            };
-        });
+        // Mobile / tablet (≤991px): no deck — the cards simply stack in normal
+        // flow and scroll like any other content. A two-phase scrubbed deal-in
+        // (approach glide + pinned rise, mirroring the desktop deck) was tried
+        // here and retired: on short viewports it read as jank, not choreography.
     }
 
     if (window.ZokuPage) window.ZokuPage.register({ init, destroy });

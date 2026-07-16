@@ -13,7 +13,11 @@
  * <canvas> onto which a ~3/4-viewport-tall cloud of dark + brand-purple pixels is
  * repainted each frame — the cloud dissolves in from transparent and sweeps
  * bottom -> top while the next page is revealed underneath it (Barba `sync` keeps
- * both pages in the DOM at once). A single canvas replaces the former CSS-grid of
+ * both pages in the DOM at once). The outgoing <main> is frozen position:fixed
+ * for the sweep; if any of the persistent footer was on screen, a frozen CLONE
+ * of it stands in below the frozen <main> (the live footer reflows to the new,
+ * taller document's end the instant the next container is inserted) and both are
+ * clipped away together. A single canvas replaces the former CSS-grid of
  * hundreds of <span> cells, each of which had its opacity written every frame;
  * now one clearRect + a handful of fillRects paints the whole band. Honours
  * prefers-reduced-motion (instant swap) and degrades to ordinary navigation with
@@ -82,7 +86,7 @@
      * The pinned tag below is stamped from the repo-root VERSION file by
      * build.sh (its sed rewrites only the @vX.Y.Z tag, never the filename) — do
      * NOT edit it by hand; bump VERSION and run ./build.sh. */
-    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.4.2/zoku-halftone.min.js';
+    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.4.3/zoku-halftone.min.js';
     let halftoneLoaded = false;
     let halftoneLoading = false;
     const ensureHalftone = (scope) => {
@@ -196,8 +200,13 @@
     /**
      * Position the band at normalised progress (0 = below the viewport, 1 = above
      * it). The incoming page sits in normal flow beneath everything; we reveal it
-     * by clipping the frozen OUTGOING page away from the bottom up, tracking the
-     * rising band centre — so the new page shows through underneath the band.
+     * by clipping the frozen OUTGOING elements away from the bottom up, tracking
+     * the rising band centre — so the new page shows through underneath the band.
+     *
+     * `frozen` is a list of { el, offset } — every fixed element standing in for
+     * the outgoing page (the frozen <main>, plus the footer clone when the reader
+     * was near the bottom). `offset` maps viewport space into that element's own
+     * box: element-space y = viewport y + offset.
      *
      * Each frame clears the canvas, then paints only the currently-visible cells:
      * the density bell + per-cell dither yields the same opacity `o` as the old
@@ -206,7 +215,7 @@
      * cells are drawn with ctx.globalAlpha = o and the cell's precomputed solid
      * fillStyle (no rgba string is built per frame).
      */
-    const setProgress = (p, oldEl, scrollY) => {
+    const setProgress = (p, frozen) => {
         const bh = BAND_FRACTION;
         const half = bh / 2;
         const cf = (1 + half) - p * (1 + bh); // band centre fraction travels up
@@ -221,21 +230,24 @@
             ctx.fillRect(cell.x, cell.y, cellSize, cellSize);
         }
         ctx.globalAlpha = 1; // leave the context in a known state
-        if (oldEl) {
-            // Reveal the new page by clipping the frozen outgoing page along the
-            // rising band centre. The clip MUST be expressed in viewport pixels, not
+        if (frozen && frozen.length) {
+            // Reveal the new page by clipping every frozen outgoing element along
+            // the rising band centre. The clip MUST be expressed in pixels, not
             // a percentage of the element: the frozen <main> is the full document
             // height (often many viewports tall), so a `bottom%` clip would track
             // the whole page, not the on-screen band — the reveal line would only
             // enter the viewport near the very end and the new page would "flash in".
             //
-            // The element is `position:fixed; top:-scrollY`, so element-space y =
-            // viewport y + scrollY. The band centre sits at viewport fraction `cf`,
-            // i.e. element-space y = scrollY + cf * innerHeight. Keep everything
-            // above that line; clip everything below it (revealing the new page).
+            // The band centre sits at viewport y = cf * innerHeight; adding each
+            // element's `offset` converts that shared line into its own box
+            // (scrollY for the <main> frozen at top:-scrollY, -footerTop for the
+            // footer clone parked at top:footerTop). Keep everything above the
+            // line; clip everything below it (revealing the new page).
             const vh = window.innerHeight;
-            const revealY = (scrollY || 0) + cf * vh;
-            oldEl.style.clipPath = `inset(0 0 calc(100% - ${revealY.toFixed(1)}px) 0)`;
+            for (let i = 0; i < frozen.length; i++) {
+                const revealY = frozen[i].offset + cf * vh;
+                frozen[i].el.style.clipPath = `inset(0 0 calc(100% - ${revealY.toFixed(1)}px) 0)`;
+            }
         }
     };
 
@@ -245,8 +257,7 @@
     const runBand = (opts) => {
         opts = opts || {};
         const duration = opts.duration || 1100;
-        const oldEl = opts.oldEl || null;
-        const scrollY = opts.scrollY || 0;
+        const frozen = opts.frozen || [];
         return new Promise((resolve) => {
             buildBand();
             canvas.style.display = 'block';
@@ -271,8 +282,13 @@
                 settled = true;
                 if (watchdog !== null) { clearTimeout(watchdog); watchdog = null; }
                 // Old page ends fully clipped — do NOT un-clip it (that would
-                // flash the outgoing page back over the new one). Barba removes it.
-                setProgress(1, oldEl, scrollY);
+                // flash the outgoing page back over the new one). Barba removes
+                // the outgoing <main>; disposable stand-ins we created ourselves
+                // (the footer clone) are removed here, already invisible.
+                setProgress(1, frozen);
+                for (let i = 0; i < frozen.length; i++) {
+                    if (frozen[i].remove) frozen[i].el.remove();
+                }
                 canvas.style.display = 'none';
                 resolve();
             };
@@ -282,13 +298,13 @@
                 return;
             }
 
-            setProgress(0, oldEl, scrollY);
+            setProgress(0, frozen);
             const start = performance.now();
             const frame = (now) => {
                 if (settled) return;
                 let t = (now - start) / duration;
                 if (t > 1) t = 1;
-                setProgress(easeInOutCubic(t), oldEl, scrollY);
+                setProgress(easeInOutCubic(t), frozen);
                 if (t < 1) {
                     requestAnimationFrame(frame);
                 } else {
@@ -355,7 +371,13 @@
      * navigation the footer colour never changes.
      *
      * Barba hands us the destination's full HTML, so read the incoming variant
-     * and write it onto the live footer. Target the attribute DIRECTLY via
+     * and write it onto the live footer. Called from the transition's enter(),
+     * within the synchronous block before the band's first paint: the reader
+     * either can't see the footer (tall pages, scrolled to top) or sees the
+     * frozen outgoing-page clone standing in front of it — so the class flip is
+     * never visible, and nav-theme / canvas-theme (which probe the footer's
+     * rendered colour in afterEnter) always see the destination's variant.
+     * Target the attribute DIRECTLY via
      * `[data-wf--footer--variant]` rather than assuming it sits on `.footer`:
      * Webflow may put it on the component root (a wrapper around, or a child of,
      * the `.footer` element). A combo-class fallback is kept in case a page ever
@@ -475,6 +497,58 @@
                     forceManualScroll();
                     const current = data.current && data.current.container;
                     const scrollY = window.scrollY || window.pageYOffset || 0;
+                    const frozen = []; // { el, offset, remove? } — see setProgress
+
+                    // Stand a frozen clone in for the footer if any of it was on
+                    // screen. The persistent footer is a SIBLING of <main>, so
+                    // freeze() below never touches it — and the moment Barba
+                    // inserted the incoming container the footer reflowed to the
+                    // end of the (much taller) new document. Left alone, the
+                    // viewport slice the footer occupied snaps to whatever the
+                    // incoming page paints at those rows (near-black on the dark
+                    // pages) for the entire sweep — the "bottom half goes black"
+                    // bug when navigating from near the bottom. The clone wears
+                    // the OUTGOING page's variant classes (cloned before the
+                    // syncFooter call below flips the live one) and is clipped
+                    // away by the rising band like the rest of the old page.
+                    //
+                    // Geometry: measured BEFORE the scrollTo(0,0) below, while the
+                    // outgoing <main> is still in normal flow. Its rect is
+                    // unaffected by the incoming container (inserted AFTER it),
+                    // and .footer follows <main> with no vertical margins
+                    // (padding-only), so the footer's on-screen top is exactly
+                    // currentRect.bottom. Take the LAST rendered .footer (same
+                    // rule as canvas-theme — components.html carries a demo one).
+                    if (current && !prefersReduced) {
+                        const footers = document.querySelectorAll('.footer');
+                        const footer = footers.length ? footers[footers.length - 1] : null;
+                        const footerTop = current.getBoundingClientRect().bottom;
+                        if (footer && footerTop < window.innerHeight) {
+                            const clone = footer.cloneNode(true);
+                            clone.setAttribute('aria-hidden', 'true');
+                            const s = clone.style;
+                            s.position = 'fixed';
+                            s.top = footerTop + 'px';
+                            s.left = '0';
+                            s.right = '0';
+                            s.zIndex = '40';
+                            s.margin = '0';
+                            s.pointerEvents = 'none';
+                            document.body.appendChild(clone);
+                            frozen.push({ el: clone, offset: -footerTop, remove: true });
+                        }
+                    }
+
+                    // Sync the live footer to the incoming page NOW — inside the
+                    // same synchronous block, i.e. before the band's first paint.
+                    // On tall pages the footer is off-screen either way; on pages
+                    // short enough to show it at scroll 0 the band now reveals it
+                    // already wearing the destination's variant classes instead of
+                    // visibly snapping when the sync used to run in afterEnter;
+                    // and when navigating from near the bottom the clone above
+                    // masks the flip entirely.
+                    syncFooter(data.next.html);
+
                     // The incoming page is already in normal flow (Barba inserted it).
                     // Reset the window to the top so it shows its hero; because it never
                     // leaves flow, the scroll stays here — no restoration race, no jump.
@@ -484,10 +558,9 @@
                         // dissolve it away from the bottom up to reveal the new page.
                         // It ends fully clipped (invisible); Barba then removes it.
                         freeze(current, 40, scrollY);
-                        await runBand({ oldEl: current, duration: 1100, scrollY });
-                    } else {
-                        await runBand({ duration: 1100 });
+                        frozen.push({ el: current, offset: scrollY });
                     }
+                    await runBand({ frozen, duration: 1100 });
                 },
             }],
         });
@@ -508,10 +581,9 @@
         window.barba.hooks.afterEnter((data) => {
             // A real navigation always carries the outgoing container; the initial
             // firing during barba.init() does not (see the note above). Skip the
-            // whole body on a DUPLICATE initial call — scroll reset, syncFooter and
-            // initPage are all redundant once first-load init has already run (the
-            // live footer already holds the entry page's own variant on a direct
-            // load). Real navigations always run the full body regardless.
+            // whole body on a DUPLICATE initial call — scroll reset and initPage
+            // are redundant once first-load init has already run. Real navigations
+            // always run the full body regardless.
             const isInitial = !(data.current && data.current.container);
             if (isInitial) {
                 if (firstInitDone) return;
@@ -519,10 +591,11 @@
             }
             forceManualScroll(); // before the browser's async restore can fire
             window.scrollTo(0, 0);
-            // Update the persistent footer BEFORE initPage: nav-theme.refresh()
-            // (inside initPage) probes the footer's background to colour the nav,
-            // so the footer must already hold the new page's variant.
-            syncFooter(data.next.html);
+            // The persistent footer was already synced to this page inside
+            // enter(), before the band's first paint — so by the time
+            // nav-theme.refresh() / canvas-theme (inside initPage) probe the
+            // footer's background, it holds the new page's variant. (On a direct
+            // load the footer is the page's own — nothing to sync.)
             initPage(data.next.container);
             // Belt-and-braces: even with scrollRestoration set to 'manual', the
             // sync scrollTo(0, 0) above can be undone a beat later by (a) the

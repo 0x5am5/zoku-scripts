@@ -27,9 +27,10 @@
 </script>
 
 <!-- Chrome tint for iOS <=18 Safari + Android (Safari 26+ ignores theme-color).
-   NOTE: a .zoku-nav_tint sampling strip for Safari 26 status-bar tinting was
-   added and removed 2026-07-15 — the opaque band read as a shadow behind the
-   nav blur. Do not reintroduce a fixed opaque strip at the top edge. -->
+   Safari 26 status-bar tinting is handled by the .zoku-nav_tint sampling strip
+   inside the Nav component (removed 2026-07-15, reinstated 2026-07-16 — an
+   opaque status bar was preferred over iOS's default translucent fade). Its
+   light/drawer-open flips live in the <style> block below. -->
 <meta name="theme-color" content="#161616">
 
 <!-- Warm the TLS connection to the CDN that serves the footer libraries + core
@@ -40,7 +41,8 @@
 <link rel="preconnect" href="https://cdn.jsdelivr.net">
 
 <style>
-  /* Pillars card-deck (runtime .cc-deck / .cc-pinned added by pillars.js) */
+  /* Pillars card-deck (runtime .cc-deck / .cc-pinned added by pillars.js,
+     desktop ≥992px only — mobile stacks in normal flow with no deck) */
   .zoku-home-pillars.cc-pinned .zoku-home-pillars_lede {
     position: static;
   }
@@ -53,16 +55,6 @@
     position: absolute;
     inset: 0;
     margin: 0;
-  }
-  @media (max-width: 991px) {
-    .zoku-home-pillars_cards.cc-deck {
-      height: 36rem;
-    }
-  }
-  @media (max-width: 767px) {
-    .zoku-home-pillars_cards.cc-deck {
-      height: 28rem;
-    }
   }
 
   /* Load-animation pre-hide (gated on html.zoku-js — set by the inline head script).
@@ -194,6 +186,26 @@
   .zoku-nav.cc-light .zoku-nav_menu:hover {
     border-color: rgba(22, 22, 22, 0.55);
     background-color: rgba(235, 235, 235, 0.7);
+  }
+
+  /* iOS status-bar sampling strip (reinstated 2026-07-16) — Safari 26 paints
+   the status-bar zone with this fixed 12px bar's background-color. The base
+   .zoku-nav_tint (position:fixed, bg-primary-bound, z-index -2, never a
+   backdrop-filter) is a Designer class inside the Nav component; these
+   descendant flips are keyed on JS state so they live here: light surface
+   under the nav → light status bar; drawer open → the strip fades out with
+   the blur stack (the elevated nav stacking context would otherwise paint
+   it above the drawer panel as a visible black bar). */
+  .zoku-nav.cc-light .zoku-nav_tint {
+    background-color: var(--_zoku-colour---bg-light);
+  }
+  .zoku-nav:is(.cc-menu-open, :has(.zoku-nav_menu[aria-expanded="true"])) .zoku-nav_tint {
+    opacity: 0;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .zoku-nav_tint {
+      transition: none;
+    }
   }
 
   /* Testimonials rail edge-fade — the right-edge gradient
@@ -502,6 +514,6 @@
 <!-- .min.js: jsDelivr auto-minifies the committed bundle on the fly (same @vX.Y.Z
      pin — the tag is what build.sh stamps, the filename is untouched). Verified live:
      ~7.5KB gzipped vs ~30.8KB for the unminified zoku-core.js. -->
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.4.2/zoku-core.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.4.3/zoku-core.min.js" defer></script>
 <!-- suppress GSAP trigger warnings -->
 <script>window.addEventListener('load',()=>window.gsap&&gsap.config({nullTargetWarn:false}));</script>

@@ -80,10 +80,13 @@
  *                                            by the home hero's reverse scroll-scrub).
  *                                            Claimed looping sprites retire their clock
  *                                            and become pure scrub. Claiming is cheap and
- *                                            never forces a load: an off-screen instance
- *                                            stays lazy until the IntersectionObserver
- *                                            activates it near the viewport, then applies
- *                                            the stored progress on its first draw.
+ *                                            never forces a load on a lazy wrapper: an
+ *                                            off-screen instance stays dormant until the
+ *                                            IntersectionObserver activates it near the
+ *                                            viewport, then applies the stored progress on
+ *                                            its first draw. A claim also tracks a not-yet-
+ *                                            scanned element (eager wrappers activate at
+ *                                            once), so claim-before-scan ordering is safe.
  *
  * Requires WebGL2 (for fwidth-based anti-aliasing). Where WebGL2 is unavailable the
  * original <img> is left visible untouched. Honours prefers-reduced-motion by freezing
@@ -533,12 +536,9 @@ void main() {
         // Visible output canvas — covers the wrapper; transparent gaps reveal its background.
         // Starts transparent and fades in the first time a frame paints (see reveal()),
         // so the halftone eases in once the image has loaded / the sprite starts playing
-        // rather than popping. Skip the transition under reduced motion (reveal is instant).
+        // rather than popping.
         const outCanvas = document.createElement('canvas');
         outCanvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;opacity:0';
-        if (!prefersReducedMotion.matches) {
-            outCanvas.style.transition = 'opacity ' + REVEAL_FADE_MS + 'ms cubic-bezier(0.22, 1, 0.36, 1)';
-        }
         const outCtx = outCanvas.getContext('2d');
 
         const inst = {
@@ -607,16 +607,25 @@ void main() {
 
         /**
          * On the first painted frame: hide the original <img> (graceful fallback) and
-         * fade the halftone canvas in from transparent. The opacity:0 starting state was
-         * committed when the canvas was appended (a prior frame), so flipping to 1 here
-         * triggers the CSS transition. Under reduced motion no transition is set, so this
-         * is an instant reveal.
+         * fade the halftone canvas in from transparent. The fade is a Web Animations API
+         * animation, NOT a CSS transition: when the image is already cached (Safari's
+         * fast path) the first draw lands in the SAME rendering frame the canvas was
+         * appended, so the opacity:0 start state was never committed and a transition
+         * from it would be silently skipped — the halftone popped in. animate() always
+         * plays from its explicit keyframe, regardless of what was committed. Under
+         * reduced motion the reveal is instant.
          */
         function reveal() {
             if (inst.revealed) return;
             inst.revealed = true;
             if (img) img.style.visibility = 'hidden';
             inst.outCanvas.style.opacity = '1';
+            if (!prefersReducedMotion.matches && inst.outCanvas.animate) {
+                inst.outCanvas.animate(
+                    [{ opacity: 0 }, { opacity: 1 }],
+                    { duration: REVEAL_FADE_MS, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
+                );
+            }
         }
 
         function onImageReady(source) {
@@ -847,6 +856,7 @@ void main() {
     let renderer = null;
     let rendererFailed = false;
     const instances = new Map();   // element → instance (null until first activation)
+    const tracked = new WeakSet(); // elements handed to the observers (or eagerly activated)
     let rafId = 0;
     let lastTime = 0;
 
@@ -959,7 +969,30 @@ void main() {
             if (ro) ro.unobserve(el);
             if (inst && inst.texture && renderer) renderer.gl.deleteTexture(inst.texture);
             instances.delete(el);
+            tracked.delete(el);
         });
+    }
+
+    /**
+     * Hand one wrapper to the lazy-activation machinery: observe it for resize and
+     * viewport entry, or activate it immediately when eager. Idempotent per element.
+     * Reached from two directions — scan() during per-page init, and setProgress()
+     * when a scroll claim lands BEFORE scan has seen the element (after a Barba
+     * swap the core bundle's hero-intro init runs ahead of this bundle's registry
+     * entries). Keyed off `tracked`, not `instances`: a claim creates the instance
+     * early, and that alone must not stop the element being observed.
+     */
+    function track(el) {
+        if (tracked.has(el)) return;
+        tracked.add(el);
+        if (!instances.has(el)) instances.set(el, null); // no GL yet — instantiate + activate lazily
+        if (ro) ro.observe(el);
+        if (el.hasAttribute('data-halftone-eager') || !io) {
+            const inst = instanceFor(el);
+            if (inst) activate(inst);
+        } else {
+            io.observe(el);
+        }
     }
 
     /**
@@ -970,17 +1003,7 @@ void main() {
     function scan(scope) {
         pruneDisconnected();
         const root = scope || document;
-        root.querySelectorAll('[data-halftone]').forEach((el) => {
-            if (instances.has(el)) return;
-            instances.set(el, null); // no GL yet — instantiate + activate lazily
-            if (ro) ro.observe(el);
-            if (el.hasAttribute('data-halftone-eager') || !io) {
-                const inst = instanceFor(el);
-                if (inst) activate(inst);
-            } else {
-                io.observe(el);
-            }
-        });
+        root.querySelectorAll('[data-halftone]').forEach((el) => track(el));
     }
 
     // Re-evaluate when the reduced-motion preference changes at runtime: a redraw lets
@@ -1008,19 +1031,29 @@ void main() {
          * immediately) the frame is pure scrub.
          *
          * Claiming is CHEAP and does NOT activate the instance: it only ensures the
-         * instance object + GL texture handle exist (no network) and stores the
-         * progress. An inactive instance is left for the IntersectionObserver to
-         * activate (and load the sheet) near the viewport — this keeps scroll-scrub's
-         * init, which calls setProgress for every track on the page, from eagerly
-         * downloading far-off-screen sprite sheets. The stored progress survives on
-         * the instance and is honoured on the first draw after activation. When the
-         * instance is already active and loaded the new frame is drawn synchronously.
+         * instance object + GL texture handle exist (no network), tracks the element
+         * (a claim can land before this bundle's per-page scan — see track()) and
+         * stores the progress. An inactive instance is left for the
+         * IntersectionObserver to activate (and load the sheet) near the viewport —
+         * this keeps scroll-scrub's init, which calls setProgress for every track on
+         * the page, from eagerly downloading far-off-screen sprite sheets. (Eager
+         * wrappers activate immediately, exactly as scan would.) The stored progress
+         * survives on the instance and is honoured on the first draw after
+         * activation. When the instance is already active and loaded the new frame
+         * is drawn synchronously.
          *
          * @param {Element} el  A [data-halftone] sprite wrapper (usually also
          *                      [data-halftone-scrub], but any sprite can be claimed).
          * @param {number}  p   Normalised progress, 0 = first frame, 1 = last frame.
          */
         setProgress(el, p) {
+            // Track BEFORE creating the instance. After a Barba swap the core
+            // bundle's hero-intro init claims the home hero ahead of this bundle's
+            // scan; if the claim created the instance without tracking, scan would
+            // treat the element as already-known and never observe it — it would
+            // never activate, so the sheet would never load and the bloom would
+            // never play on SPA entry to the homepage.
+            track(el);
             const inst = instanceFor(el);
             if (!inst) return;
             const takeover = !inst.scrubOwned;
@@ -1035,7 +1068,7 @@ void main() {
             // scrolled frame. Nor do we activate an inactive instance — activation runs
             // loadSource() (a full sprite-sheet download, some sheets ~33MB decoded),
             // which we must not trigger for off-screen tracks. The IntersectionObserver
-            // already observes this element (scan ran first) and activates it near the
+            // already observes this element (track() above) and activates it near the
             // viewport; the stored scrubProgress/scrubOwned survive on the instance and
             // apply on the first draw after activation (onImageReady marks dirty and kicks
             // the loop). Only when the instance is already live do we draw the new frame.

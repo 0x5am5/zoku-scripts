@@ -448,6 +448,48 @@
     height: 100%;
     object-fit: cover;
   }
+
+  /* Team-card social links reveal (2026-07-16) — the socials overlay rests
+   hidden (opacity 0 + pointer-events none on the zoku-team-card_socials
+   Designer class); the reveal is keyed on :hover/:focus-within THROUGH the
+   card — descendant selectors with no Designer representation, so they live
+   here. Mirrors the runtime-state rules in styles.css. */
+  .zoku-team-card:hover .zoku-team-card_socials,
+  .zoku-team-card:focus-within .zoku-team-card_socials {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .zoku-team-card:hover .zoku-team-card_social,
+  .zoku-team-card:focus-within .zoku-team-card_social {
+    transform: translateY(0);
+  }
+  /* Touch — no hover state, so the links rest visible. */
+  @media (hover: none) {
+    .zoku-team-card_socials {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .zoku-team-card_social {
+      transform: none;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .zoku-team-card_socials,
+    .zoku-team-card_social {
+      transition: none;
+    }
+  }
+
+  /* Text selection (global) — brand-purple surface, black text. ::selection has
+   no Designer representation, so it lives here. Mirrors styles.css. */
+  ::selection {
+    background: var(--_zoku-colour---brand-purple);
+    color: var(--_zoku-colour---bg-primary);
+  }
+  ::-moz-selection {
+    background: var(--_zoku-colour---brand-purple);
+    color: var(--_zoku-colour---bg-primary);
+  }
 </style>
 
 <!-- Site Settings → Custom Code → Footer Code -->
@@ -460,6 +502,6 @@
 <!-- .min.js: jsDelivr auto-minifies the committed bundle on the fly (same @vX.Y.Z
      pin — the tag is what build.sh stamps, the filename is untouched). Verified live:
      ~7.5KB gzipped vs ~30.8KB for the unminified zoku-core.js. -->
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.4.1/zoku-core.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.4.2/zoku-core.min.js" defer></script>
 <!-- suppress GSAP trigger warnings -->
 <script>window.addEventListener('load',()=>window.gsap&&gsap.config({nullTargetWarn:false}));</script>

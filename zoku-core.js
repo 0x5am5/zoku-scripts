@@ -89,7 +89,7 @@
      * The pinned tag below is stamped from the repo-root VERSION file by
      * build.sh (its sed rewrites only the @vX.Y.Z tag, never the filename) — do
      * NOT edit it by hand; bump VERSION and run ./build.sh. */
-    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.5.1/zoku-halftone.min.js';
+    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.5.2/zoku-halftone.min.js';
     let halftoneLoaded = false;
     let halftoneLoading = false;
     const ensureHalftone = (scope) => {
@@ -693,6 +693,18 @@
     const closers = menu.querySelectorAll('[data-nav-close]');
     let lastFocus = null;
 
+    // Re-open lockout. close() removes [open] immediately, but the panel takes
+    // 0.5s to slide shut (and the chip label ~0.45s to tick CLOSE→MENU) — so a
+    // second click landing in that window would hit the toggle's "open" branch
+    // and bring the drawer straight back. That second click is the tail of a
+    // close gesture (a double-click on the chip, or scrim-then-chip), not a
+    // fresh open — the "menu won't close" bug. Animated closes stamp this
+    // deadline and the open branch swallows clicks inside it. Instant closes
+    // (bfcache/pagehide) and reduced-motion closes skip it: the drawer is
+    // already visually gone, so there is no window to protect.
+    const REOPEN_LOCK_MS = 600; // 0.5s slide-out + margin
+    let reopenLockUntil = 0;
+
     // Elements whose CSS transitions must be bypassed for an instant close —
     // the drawer flow plus the chip's MENU/CLOSE letters (which would
     // otherwise visibly tick back on a bfcache-restore force-close).
@@ -912,6 +924,9 @@
      */
     const close = (opts) => {
         const instant = !!(opts && opts.instant);
+        if (!instant && !prefersReduced) {
+            reopenLockUntil = performance.now() + REOPEN_LOCK_MS;
+        }
         if (instant) {
             flowEls().forEach((el) => { el.style.transition = 'none'; });
             void menu.offsetWidth; // commit transition:none before changing [open]
@@ -955,6 +970,8 @@
         if (menu.hasAttribute('open')) {
             close();
         } else {
+            // Mid-close clicks must not re-open — see the lockout note above.
+            if (performance.now() < reopenLockUntil) return;
             open();
         }
     });
@@ -1126,6 +1143,22 @@
         // a stale element reference must not short-circuit the first post-swap probe.
         lastSurface = null;
         update();
+        // If the probe matched nothing, resolve against the page background.
+        // Pages with no full-bleed hero (portfolio / resources) rest with their
+        // first section 88px down — .main-wrapper's nav-height padding — so at
+        // scroll 0 the probe hovers over bare page background and update()'s
+        // leave-as-is gap behaviour would carry the PREVIOUS page's state
+        // across a SPA swap: a stale cc-light renders the nav invisible on a
+        // dark page and paints the fixed status-bar tint as a light strip.
+        // What is actually visible behind the nav there IS the page-wrapper
+        // background, so probe it once and land on a definite state. (Kept out
+        // of update() itself: mid-scroll gaps still keep the last matched
+        // surface's state — lastSurface is non-null by then — avoiding
+        // per-frame walks and subpixel-gap flicker.)
+        if (lastSurface === null) {
+            const backdrop = document.querySelector('.page-wrapper') || document.body;
+            if (backdrop) nav.classList.toggle('cc-light', isLightSurface(backdrop));
+        }
     };
 
     window.addEventListener('scroll', onScroll, { passive: true });

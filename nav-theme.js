@@ -106,6 +106,22 @@
         // a stale element reference must not short-circuit the first post-swap probe.
         lastSurface = null;
         update();
+        // If the probe matched nothing, resolve against the page background.
+        // Pages with no full-bleed hero (portfolio / resources) rest with their
+        // first section 88px down — .main-wrapper's nav-height padding — so at
+        // scroll 0 the probe hovers over bare page background and update()'s
+        // leave-as-is gap behaviour would carry the PREVIOUS page's state
+        // across a SPA swap: a stale cc-light renders the nav invisible on a
+        // dark page and paints the fixed status-bar tint as a light strip.
+        // What is actually visible behind the nav there IS the page-wrapper
+        // background, so probe it once and land on a definite state. (Kept out
+        // of update() itself: mid-scroll gaps still keep the last matched
+        // surface's state — lastSurface is non-null by then — avoiding
+        // per-frame walks and subpixel-gap flicker.)
+        if (lastSurface === null) {
+            const backdrop = document.querySelector('.page-wrapper') || document.body;
+            if (backdrop) nav.classList.toggle('cc-light', isLightSurface(backdrop));
+        }
     };
 
     window.addEventListener('scroll', onScroll, { passive: true });

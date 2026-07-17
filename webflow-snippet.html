@@ -208,7 +208,11 @@
    descendant flips are keyed on JS state so they live here: light surface
    under the nav → light status bar; drawer open → the strip fades out with
    the blur stack (the elevated nav stacking context would otherwise paint
-   it above the drawer panel as a visible black bar). */
+   it above the drawer panel as a visible black bar).
+   NOTE 2026-07-17: the strip is RETIRED — permanently hidden by the
+   .zoku-nav_tint override in the FOOTER code block below (kept there so the
+   retirement is a tiny, low-risk edit to the small footer block rather than
+   a rewrite of this whole head block). These rules are inert while it holds. */
   .zoku-nav.cc-light .zoku-nav_tint {
     background-color: var(--_zoku-colour---bg-light);
   }
@@ -629,6 +633,14 @@
 <!-- .min.js: jsDelivr auto-minifies the committed bundle on the fly (same @vX.Y.Z
      pin — the tag is what build.sh stamps, the filename is untouched). Verified live:
      ~7.5KB gzipped vs ~30.8KB for the unminified zoku-core.js. -->
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.5.5/zoku-core.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.5.6/zoku-core.min.js" defer></script>
 <!-- suppress GSAP trigger warnings -->
 <script>window.addEventListener('load',()=>window.gsap&&gsap.config({nullTargetWarn:false}));</script>
+<!-- .zoku-nav_tint RETIRED (2026-07-17, client request): the fixed 12px iOS
+     status-bar sampling strip kept surfacing as a visible bar during SPA
+     transitions and JS-state flips. Permanently hidden here — the footer block
+     is tiny, so the kill switch lives in this low-risk edit rather than a
+     rewrite of the whole head <style> block (whose tint rules are now inert).
+     Safari's status bar falls back to sampling the page. Delete this style tag
+     to reinstate. -->
+<style>.zoku-nav_tint{opacity:0 !important;}</style>

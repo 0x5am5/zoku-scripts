@@ -89,7 +89,7 @@
      * The pinned tag below is stamped from the repo-root VERSION file by
      * build.sh (its sed rewrites only the @vX.Y.Z tag, never the filename) — do
      * NOT edit it by hand; bump VERSION and run ./build.sh. */
-    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.5.5/zoku-halftone.min.js';
+    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.5.6/zoku-halftone.min.js';
     let halftoneLoaded = false;
     let halftoneLoading = false;
     const ensureHalftone = (scope) => {
@@ -745,9 +745,11 @@
  *   3. Once the list has finished, the footer items stagger in the same way.
  *
  * The entrance is timed to play DURING the panel's 0.8s slide-in — the
- * contents are already mid-motion when the slide uncovers them — and any
- * animated close (chip, scrim, Escape, or a followed link) REVERSES the same
- * timeline, sped up to land inside the panel's 0.5s slide-out.
+ * contents are already mid-motion when the slide uncovers them. Close is
+ * DRAWER-ONLY: the panel slides out and the scrim fades (pure CSS on [open]),
+ * while the contents stay put — the intro timeline is killed and its inline
+ * props cleared, never reversed, so the links don't visibly wind back while
+ * the panel is leaving.
  *
  * The rail spans the links only — the eyebrow sits above it. The purple
  * progress segment is shown ONLY when a menu link is the current page: it is
@@ -1059,25 +1061,15 @@
         if (panel) panel.setAttribute('aria-hidden', 'true');
         document.body.style.overflow = '';
 
-        // Wind the entrance back so the close mirrors the open. An animated
-        // close REVERSES the intro timeline, sped up so it lands inside the
-        // panel's 0.5s slide-out (the drawer stays visible exactly that long);
-        // the inline props are cleared once the reverse completes so the next
-        // open replays from a clean resting state. An instant close skips the
-        // motion entirely. (The progress segment is deliberately NOT cleared —
-        // its inline top/height/display come from positionProgress, not GSAP,
-        // and are recomputed on every open.)
-        if (intro) {
-            if (instant) {
-                clearIntro();
-            } else {
-                const tl = intro;
-                tl.eventCallback('onReverseComplete', () => {
-                    if (intro === tl) clearIntro();
-                });
-                tl.timeScale(Math.max(tl.time() / 0.45, 1)).reverse();
-            }
-        }
+        // Close is drawer-only: the panel slide + scrim fade (CSS on [open])
+        // carry the exit, and the contents simply ride out with the panel —
+        // the intro timeline is killed and its inline props cleared, NOT
+        // reversed, so the links/eyebrow never visibly wind back during the
+        // slide-out. Clearing also lifts the entrance tap guard and leaves a
+        // clean resting state for the next open to replay from. (The progress
+        // segment is deliberately NOT cleared — its inline top/height/display
+        // come from positionProgress, not GSAP, and are recomputed per open.)
+        clearIntro();
 
         if (instant) {
             void menu.offsetWidth; // commit the transition-less close this frame

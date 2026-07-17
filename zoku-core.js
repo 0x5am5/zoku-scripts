@@ -89,7 +89,7 @@
      * The pinned tag below is stamped from the repo-root VERSION file by
      * build.sh (its sed rewrites only the @vX.Y.Z tag, never the filename) — do
      * NOT edit it by hand; bump VERSION and run ./build.sh. */
-    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.5.6/zoku-halftone.min.js';
+    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.5.7/zoku-halftone.min.js';
     let halftoneLoaded = false;
     let halftoneLoading = false;
     const ensureHalftone = (scope) => {
@@ -343,6 +343,18 @@
         el.style.right = '0';
         el.style.zIndex = String(z);
         el.style.margin = '0';
+        // The frozen main must be OPAQUE. The main-wrapper itself is
+        // transparent — normally the page-wrapper's canvas shows through any
+        // band its sections don't paint (portfolio/resources have no
+        // full-bleed hero, so their top nav-height padding band is exactly
+        // such a hole). During the sweep the INCOMING page is stacked beneath
+        // instead, so a light destination (contact's pulled-up cream hero)
+        // shone through that hole for the whole transition — a white flash the
+        // height of the nav. Paint the outgoing page's own canvas colour
+        // behind its sections; the inline style leaves with the element when
+        // Barba removes it.
+        const wrapper = el.closest('.page-wrapper');
+        if (wrapper) el.style.background = getComputedStyle(wrapper).backgroundColor;
     };
 
     /* ── Page lifecycle ────────────────────────────────────────────────────── */

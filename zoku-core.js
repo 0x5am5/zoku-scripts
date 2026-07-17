@@ -89,7 +89,7 @@
      * The pinned tag below is stamped from the repo-root VERSION file by
      * build.sh (its sed rewrites only the @vX.Y.Z tag, never the filename) — do
      * NOT edit it by hand; bump VERSION and run ./build.sh. */
-    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.5.3/zoku-halftone.min.js';
+    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.5.4/zoku-halftone.min.js';
     let halftoneLoaded = false;
     let halftoneLoading = false;
     const ensureHalftone = (scope) => {
@@ -445,6 +445,74 @@
         }
     };
 
+    /**
+     * Sync the persistent NAV's Webflow variant to the incoming page.
+     *
+     * The nav is persistent chrome like the footer, and carries the same
+     * two-layer variant pattern: a `data-wf--nav--variant` attribute
+     * ("base" | "light") on the component root plus per-element `w-variant-*`
+     * combo classes (the logo link and the MENU chip). Left alone it stays
+     * frozen on the ENTRY page's variant: arriving on a dark page from
+     * /contact keeps the light-variant nav — dark-ink logo invisible on the
+     * dark background, light chip pill floating over it — and because the
+     * variant pins the logo/chip colours at Designer level, nav-theme's
+     * cc-light flips produce no visible change on top of it either.
+     *
+     * Unlike the footer (synced inside enter(), where the flip is hidden by
+     * the frozen outgoing page / its clone), the nav floats ABOVE the frozen
+     * page for the whole band sweep — flipping it in enter() would visibly
+     * snap its colours while the outgoing page is still on screen. So this is
+     * called from afterEnter, once the sweep has fully revealed the new page:
+     * the same moment nav-theme resolves cc-light, so both colour layers land
+     * together.
+     *
+     * Mirrors the incoming attribute, then pairs the two nav trees
+     * structurally (the nav is the same component instance on every page, so
+     * the element lists line up) and mirrors just the `w-variant-*` classes —
+     * runtime state (cc-light, cc-menu-open, aria-*, inline styles) is left
+     * untouched. If the structures ever diverge, falls back to the two known
+     * variant carriers so the colour flip still lands.
+     */
+    const NAV_VARIANT_ATTR = 'data-wf--nav--variant';
+    const syncNavVariant = (nextHTML) => {
+        if (!nextHTML) return;
+        const nextDoc = new DOMParser().parseFromString(nextHTML, 'text/html');
+        const liveNav = document.querySelector('.zoku-nav');
+        const nextNav = nextDoc.querySelector('.zoku-nav');
+        if (!liveNav || !nextNav) return;
+
+        if (nextNav.hasAttribute(NAV_VARIANT_ATTR)) {
+            liveNav.setAttribute(NAV_VARIANT_ATTR, nextNav.getAttribute(NAV_VARIANT_ATTR));
+        } else {
+            liveNav.removeAttribute(NAV_VARIANT_ATTR);
+        }
+
+        const mirrorVariants = (lv, nx) => {
+            if (!lv || !nx) return;
+            const nextVariants = Array.from(nx.classList)
+                .filter((c) => c.indexOf('w-variant-') === 0);
+            Array.from(lv.classList).forEach((c) => {
+                if (c.indexOf('w-variant-') === 0 && nextVariants.indexOf(c) === -1) {
+                    lv.classList.remove(c);
+                }
+            });
+            nextVariants.forEach((c) => lv.classList.add(c));
+        };
+        const liveEls = [liveNav].concat(Array.from(liveNav.querySelectorAll('*')));
+        const nextEls = [nextNav].concat(Array.from(nextNav.querySelectorAll('*')));
+        if (liveEls.length === nextEls.length) {
+            for (let i = 0; i < liveEls.length; i++) {
+                if (liveEls[i].tagName === nextEls[i].tagName) {
+                    mirrorVariants(liveEls[i], nextEls[i]);
+                }
+            }
+        } else {
+            ['.zoku-nav_logo', '.zoku-nav_menu'].forEach((sel) => {
+                mirrorVariants(liveNav.querySelector(sel), nextNav.querySelector(sel));
+            });
+        }
+    };
+
     /** Run every module against `scope`, then refresh the global chrome. */
     const initPage = (scope) => {
         ZokuPage.initAll(scope || document);
@@ -594,6 +662,12 @@
             }
             forceManualScroll(); // before the browser's async restore can fire
             window.scrollTo(0, 0);
+            // The nav's variant flips HERE — not in enter() like the footer —
+            // because the nav floats above the frozen outgoing page for the
+            // whole sweep (see syncNavVariant). Runs before initPage so
+            // nav-theme's cc-light resolution sees the final nav state. On the
+            // initial firing the nav is the page's own — the sync is a no-op.
+            syncNavVariant(data.next.html);
             // The persistent footer was already synced to this page inside
             // enter(), before the band's first paint — so by the time
             // nav-theme.refresh() / canvas-theme (inside initPage) probe the

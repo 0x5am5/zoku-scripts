@@ -209,12 +209,12 @@
    under the nav → light status bar; drawer open → the strip fades out with
    the blur stack (the elevated nav stacking context would otherwise paint
    it above the drawer panel as a visible black bar).
-   NOTE 2026-07-17: the drawer-open hide below is made an instant SNAP by a
-   later-in-cascade rule in the FOOTER code block — the tint's base 0.4s
-   opacity fade otherwise showed the strip as a bar sliding over the opening
-   drawer (the elevated nav stacking context paints it above the panel). The
-   snap lives in the footer so the fix is a tiny edit to the small block
-   rather than a rewrite of this whole head block. */
+   NOTE 2026-07-17: two footer-block rules supersede parts of this — the
+   drawer-open hide is made an instant SNAP (the base 0.4s opacity fade
+   otherwise showed the strip as a bar sliding over the opening drawer), and
+   the strip is pinned ALWAYS BLACK (the cc-light background flip below is
+   inert — it didn't track page colour reliably enough). Kept in the footer
+   so the fixes are tiny edits to the small block, not a rewrite of this one. */
   .zoku-nav.cc-light .zoku-nav_tint {
     background-color: var(--_zoku-colour---bg-light);
   }
@@ -638,13 +638,21 @@
 <script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.5.7/zoku-core.min.js" defer></script>
 <!-- suppress GSAP trigger warnings -->
 <script>window.addEventListener('load',()=>window.gsap&&gsap.config({nullTargetWarn:false}));</script>
-<!-- .zoku-nav_tint drawer-open SNAP (2026-07-17). The iOS status-bar strip is
-     ACTIVE (a brief opacity:0-always retirement was reverted the same day) —
-     but when the drawer opens, the elevated nav stacking context paints the
-     strip above the panel, and the head rule that hides it inherited the
-     tint's base 0.4s opacity fade: a visible bar sliding over the opening
-     drawer. Transitions take the DESTINATION state's timing, so this
-     later-in-cascade rule makes the hide instant while closing still fades
-     the strip back in via the base transition. Lives here so the fix is a
-     tiny edit to the small footer block, not a rewrite of the head block. -->
-<style>.zoku-nav:is(.cc-menu-open, :has(.zoku-nav_menu[aria-expanded='true'])) .zoku-nav_tint{transition:opacity 0s;}</style>
+<!-- .zoku-nav_tint overrides (2026-07-17). The iOS status-bar strip is ACTIVE
+     (a brief opacity:0-always retirement was reverted the same day); these
+     later-in-cascade rules adjust its behaviour without rewriting the head
+     block (whose tint rules they supersede):
+     1. Drawer-open hide is an instant SNAP — the elevated nav stacking
+        context paints the strip above the panel, and the head rule that
+        hides it inherited the tint's base 0.4s opacity fade: a visible bar
+        sliding over the opening drawer. Transitions take the DESTINATION
+        state's timing, so the hide is instant while closing still fades the
+        strip back in via the base transition.
+     2. ALWAYS BLACK — the cc-light background flip didn't track page colour
+        reliably enough (client call), so the strip stays bg-primary
+        everywhere; the head's cc-light background rule is inert under the
+        !important. -->
+<style>
+.zoku-nav:is(.cc-menu-open, :has(.zoku-nav_menu[aria-expanded='true'])) .zoku-nav_tint{transition:opacity 0s;}
+.zoku-nav_tint{background-color:var(--_zoku-colour---bg-primary) !important;}
+</style>

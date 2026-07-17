@@ -89,7 +89,7 @@
      * The pinned tag below is stamped from the repo-root VERSION file by
      * build.sh (its sed rewrites only the @vX.Y.Z tag, never the filename) — do
      * NOT edit it by hand; bump VERSION and run ./build.sh. */
-    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.5.0/zoku-halftone.min.js';
+    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.5.1/zoku-halftone.min.js';
     let halftoneLoaded = false;
     let halftoneLoading = false;
     const ensureHalftone = (scope) => {
@@ -1534,15 +1534,13 @@
 
 /* ==== pillars.js ==== */
 (function () {
-    let mm = null;          // gsap.matchMedia() for the pinned card deck (desktop only)
-    let ledeTween = null;   // the lede fade-in (carries its own ScrollTrigger)
+    let mm = null;             // gsap.matchMedia() for the pinned card deck (desktop only)
+    let ledeTween = null;      // the lede fade-in (fire-and-forget gsap.to)
+    let ledeObserver = null;   // IntersectionObserver that fires the reveal
 
     function destroy() {
-        if (ledeTween) {
-            if (ledeTween.scrollTrigger) ledeTween.scrollTrigger.kill();
-            ledeTween.kill();
-            ledeTween = null;
-        }
+        if (ledeTween) { ledeTween.kill(); ledeTween = null; }
+        if (ledeObserver) { ledeObserver.disconnect(); ledeObserver = null; }
         if (mm) { mm.revert(); mm = null; } // reverts tweens + ScrollTriggers + class changes
     }
 
@@ -1566,38 +1564,80 @@
         //
         // The lede is PRE-HIDDEN in CSS (`.zoku-js .zoku-home-pillars_lede`,
         // disabled under reduced-motion) so it is never visible before its
-        // reveal. Previously a from-tween with immediateRender:false left it at
-        // its natural opacity:1 until the `top 75%` trigger fired — so it was
-        // seen plainly as it scrolled up into view, then snapped to 0 and faded
-        // back in (a visible flash). A CSS pre-hide removes that window, exactly
-        // like the hero intro.
+        // reveal, and that CSS rule also carries a bounded fallback animation
+        // (zoku-pillars-lede-fallback) that self-reveals it if this module
+        // never runs. Mirror hero-intro's handoff: read whether the fallback is
+        // already painting BEFORE touching the element, then clear `animation`
+        // (a filled CSS animation overrides GSAP's inline styles and would pin
+        // the lede, breaking the scroll-in reveal).
         //
-        // With the pre-hide in place we must drive it with a fromTo to an
-        // EXPLICIT opacity:1 end (a from-tween would animate 0 → 0 against the
-        // CSS-hidden natural state). immediateRender:false keeps GSAP from
-        // writing the "from" values at creation, so the CSS hidden state holds
-        // until the tween actually plays; toggleActions (no `once`) lets
-        // ScrollTrigger re-sync on every refresh — including the refresh the
-        // deck pin below and each Barba swap force — so it self-heals.
+        // The reveal is refresh-proof AND does not depend on ScrollTrigger's
+        // scroll-crossing detection. The previous fromTo used toggleActions
+        // 'play none none none': it played once on the `top 75%` cross, but a
+        // later ScrollTrigger.refresh() — forced by the deck pin creation below
+        // and by each Barba swap / image load — REWOUND the fromTo to its "from"
+        // state, and with no boundary re-cross the play toggle never re-fired,
+        // so the lede stuck at opacity:0 / y:32 in Safari (Chrome's load order
+        // happened to dodge the rewind).
         //
-        // Clear any inline opacity/transform a prior (killed) instance left on
-        // the lede so it falls back to the CSS pre-hide, not a stale inline 0.
-        if (lede && !reduceMotion) {
-            gsap.set(lede, { clearProps: 'opacity,transform' });
-            ledeTween = gsap.fromTo(lede,
-                { opacity: 0, y: 32 },
-                {
-                    opacity: 1,
-                    y: 0,
-                    duration: 0.9,
-                    ease: 'power2.out',
-                    immediateRender: false,
-                    scrollTrigger: {
-                        trigger: section,
-                        start: 'top 75%',
-                        toggleActions: 'play none none none',
-                    },
-                });
+        // Now an IntersectionObserver fires an INDEPENDENT fire-and-forget
+        // gsap.to() — a standalone tween ScrollTrigger holds no handle on, so a
+        // refresh cannot rewind it. IO is chosen over a ScrollTrigger callback
+        // deliberately: it fires reliably on first paint if the section is
+        // already in view (the deep-link / mid-page-swap case) AND on the
+        // enter crossing, is immune to ScrollTrigger.refresh(), and — unlike a
+        // ScrollTrigger onEnter — fires even in nested-scroller contexts.
+        if (lede) {
+            const fallbackPainting =
+                parseFloat(window.getComputedStyle(lede).opacity) > 0.01;
+            lede.style.animation = 'none';
+
+            if (reduceMotion) {
+                // CSS already shows it under reduced-motion; clear any inline
+                // leftovers a prior (killed) instance left and pin it visible.
+                gsap.set(lede, { clearProps: 'opacity,transform' });
+                lede.style.opacity = '1';
+                lede.style.transform = 'none';
+            } else if (fallbackPainting) {
+                // The CSS fallback already revealed it (JS arrived late) — adopt
+                // the visible end state, no replay.
+                lede.style.opacity = '1';
+                lede.style.transform = 'none';
+            } else {
+                // Start from the pre-hidden state (CSS only sets opacity, so set
+                // the y offset too), then reveal on approach.
+                gsap.set(lede, { opacity: 0, y: 32 });
+
+                const revealLede = () => {
+                    if (ledeTween) return;
+                    ledeTween = gsap.to(lede, {
+                        opacity: 1,
+                        y: 0,
+                        duration: 0.9,
+                        ease: 'power2.out',
+                    });
+                };
+
+                if (typeof IntersectionObserver === 'function') {
+                    // Default threshold 0, no rootMargin: reveal as soon as any
+                    // part of the (tall) section enters the viewport. A negative
+                    // rootMargin to mimic the old `top 75%` start proved flaky
+                    // on a programmatically-scrolled iframe root in Safari; the
+                    // plain form fires reliably, and revealing a below-the-fold
+                    // lede the moment it enters view reads the same.
+                    ledeObserver = new IntersectionObserver((entries, obs) => {
+                        if (entries.some((e) => e.isIntersecting)) {
+                            revealLede();
+                            obs.disconnect();
+                            ledeObserver = null;
+                        }
+                    });
+                    ledeObserver.observe(section);
+                } else {
+                    // No IntersectionObserver (ancient engine): reveal now.
+                    revealLede();
+                }
+            }
         }
 
         if (cards.length < 2) return;
@@ -1779,6 +1819,26 @@
             );
         };
 
+        // On mobile the rows stack full-width, so opening a lower row while the
+        // previously open one collapses above it can leave the tapped toggle
+        // stranded mid-viewport or pushed off-screen. Scroll the toggle to the
+        // top of the viewport — just below the fixed .zoku-nav so it isn't
+        // covered. Desktop keeps its scroll position: the layout barely shifts
+        // there and the jump would feel abrupt. Measured synchronously after
+        // the [open] swap — collapse is instant CSS, and the panel reveal only
+        // animates transform/opacity, so geometry is already final.
+        const scrollToToggle = (toggle) => {
+            if (!window.matchMedia('(max-width: 767px)').matches) return;
+            const nav = document.querySelector('.zoku-nav');
+            const navHeight = nav ? nav.getBoundingClientRect().height : 0;
+            const top = toggle.getBoundingClientRect().top
+                + (window.scrollY || window.pageYOffset || 0) - navHeight;
+            window.scrollTo({
+                top: Math.max(0, top),
+                behavior: prefersReducedMotion ? 'auto' : 'smooth',
+            });
+        };
+
         const setActive = (idx) => {
             items.forEach((item, i) => {
                 const shouldOpen = i === idx;
@@ -1800,7 +1860,9 @@
             if (!summary) return;
             summary.addEventListener('click', (e) => {
                 e.preventDefault();
+                const wasOpen = isOpen(item);
                 setActive(i);
+                if (!wasOpen) scrollToToggle(summary);
             });
         });
 

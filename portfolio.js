@@ -50,6 +50,26 @@
             );
         };
 
+        // On mobile the rows stack full-width, so opening a lower row while the
+        // previously open one collapses above it can leave the tapped toggle
+        // stranded mid-viewport or pushed off-screen. Scroll the toggle to the
+        // top of the viewport — just below the fixed .zoku-nav so it isn't
+        // covered. Desktop keeps its scroll position: the layout barely shifts
+        // there and the jump would feel abrupt. Measured synchronously after
+        // the [open] swap — collapse is instant CSS, and the panel reveal only
+        // animates transform/opacity, so geometry is already final.
+        const scrollToToggle = (toggle) => {
+            if (!window.matchMedia('(max-width: 767px)').matches) return;
+            const nav = document.querySelector('.zoku-nav');
+            const navHeight = nav ? nav.getBoundingClientRect().height : 0;
+            const top = toggle.getBoundingClientRect().top
+                + (window.scrollY || window.pageYOffset || 0) - navHeight;
+            window.scrollTo({
+                top: Math.max(0, top),
+                behavior: prefersReducedMotion ? 'auto' : 'smooth',
+            });
+        };
+
         const setActive = (idx) => {
             items.forEach((item, i) => {
                 const shouldOpen = i === idx;
@@ -71,7 +91,9 @@
             if (!summary) return;
             summary.addEventListener('click', (e) => {
                 e.preventDefault();
+                const wasOpen = isOpen(item);
                 setActive(i);
+                if (!wasOpen) scrollToToggle(summary);
             });
         });
 

@@ -1,6 +1,6 @@
 <!--
   Zoku — Webflow custom code. MIRROR of the live Site Settings → Custom Code
-  blocks, synchronised from Webflow (get_site_freeform_code) on 2026-07-15.
+  blocks, synchronised from Webflow (get_site_freeform_code) on 2026-07-17.
   Webflow is the source of truth — after editing the live blocks, re-sync this
   file rather than the other way round.
 
@@ -25,14 +25,6 @@
 <script>
   document.documentElement.classList.add('zoku-js');
 </script>
-
-<!-- Chrome tint for iOS <=18 Safari + Android (Safari 26+ ignores theme-color).
-   Safari 26 status-bar tinting is handled by the .zoku-nav_tint sampling strip
-   inside the Nav component (removed 2026-07-15, reinstated 2026-07-16 — an
-   opaque status bar was preferred over iOS's default translucent fade). Its
-   light/drawer-open flips live in the <style> block below. -->
-<meta name="theme-color" content="#161616">
-
 <!-- Warm the TLS connection to the CDN that serves the footer libraries + core
      bundle. Deliberately NO crossorigin: those footer <script>s are classic
      scripts (no crossorigin attr), so they fetch over a plain, non-CORS
@@ -40,7 +32,22 @@
      the browser would open a second connection anyway. -->
 <link rel="preconnect" href="https://cdn.jsdelivr.net">
 
+<!-- Chrome tint for iOS <=18 Safari + Android (Safari 26+ ignores theme-color).
+   Safari 26 status-bar tinting is handled by the .zoku-nav_tint sampling strip
+   inside the Nav component (removed 2026-07-15, reinstated 2026-07-16 — an
+   opaque status bar was preferred over iOS's default translucent fade). Its
+   light/drawer-open colour flips live in the <style> block below. -->
+<meta name="theme-color" content="#161616" />
+
 <style>
+  /* In-page anchor targets (hero "Learn more" → #pillars, rich-text TOC
+     links) land with their top edge below the fixed nav instead of
+     underneath it. No Designer representation for scroll-margin, so it
+     lives here. 5.5rem mirrors the template's --zoku-nav-height token. */
+  [id] {
+    scroll-margin-top: 5.5rem;
+  }
+
   /* Pillars card-deck (runtime .cc-deck / .cc-pinned added by pillars.js,
      desktop ≥992px only — mobile stacks in normal flow with no deck) */
   .zoku-home-pillars.cc-pinned .zoku-home-pillars_lede {
@@ -56,7 +63,6 @@
     inset: 0;
     margin: 0;
   }
-
   /* Load-animation pre-hide (gated on html.zoku-js — set by the inline head script).
      The hero headline is the page's LCP element, so the bounded CSS animation
      reveals it after 1.8s even if the deferred JS chain is slow; hero-intro.js
@@ -75,8 +81,18 @@
       transform: translateY(0);
     }
   }
+  /* Lede safety net (mirrors the hero fallback above): a bounded CSS animation
+     reveals it after 2s if the JS chain never arrives; pillars.js (zoku-core
+     ≥ v1.5.1) adopts or cancels it on init — it clears animation before
+     tweening, since a filled animation would override GSAP's inline styles. */
   .zoku-js .zoku-home-pillars_lede {
     opacity: 0;
+    animation: zoku-pillars-lede-fallback 0.6s cubic-bezier(0.22, 1, 0.36, 1) 2s forwards;
+  }
+  @keyframes zoku-pillars-lede-fallback {
+    to {
+      opacity: 1;
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -88,6 +104,7 @@
     }
     .zoku-js .zoku-home-pillars_lede {
       opacity: 1;
+      animation: none;
     }
   }
 
@@ -164,11 +181,7 @@
     visibility: visible;
   }
 
-  /* Page transition — since v1.4.1 the rising pixel band is a single <canvas>
-   that barba-init.js injects fully SELF-STYLED (inline position:fixed/inset/
-   z-index/display), so it needs no CSS here. The old .zoku-band / .zoku-band_px
-   rules (the pre-canvas band was a grid of hundreds of spans) were removed with
-   that release — do not reintroduce them. */
+  /* Page-transition band: styles are inline in barba-init.js since v1.4.1 — no CSS needed here. */
 
   /* Adaptive nav — reacts to nav-theme.js toggling .cc-light over light surfaces.
    Webflow can't hold this JS-state selector or the source's custom-property
@@ -199,13 +212,8 @@
   .zoku-nav.cc-light .zoku-nav_tint {
     background-color: var(--_zoku-colour---bg-light);
   }
-  .zoku-nav:is(.cc-menu-open, :has(.zoku-nav_menu[aria-expanded="true"])) .zoku-nav_tint {
+  .zoku-nav:is(.cc-menu-open, :has(.zoku-nav_menu[aria-expanded='true'])) .zoku-nav_tint {
     opacity: 0;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .zoku-nav_tint {
-      transition: none;
-    }
   }
 
   /* Testimonials rail edge-fade — the right-edge gradient
@@ -382,7 +390,7 @@
     }
   }
 
-/* Testimonials Rail — Light variant cascade. The Webflow component's Light
+  /* Testimonials Rail — Light variant cascade. The Webflow component's Light
    variant emits a data attribute on the rail root
    (data-wf--testimonials-rail--variant="light"), NOT a .cc-light combo — and
    the cards (+ eyebrow / heading / edge fade) are styled via descendant
@@ -390,64 +398,165 @@
    can't be given a light combo conditionally. So the light flip must cascade
    from the variant attribute here. Mirrors the static
    `.cc-light .zoku-testimonial-card` rules in styles.css. */
-[data-wf--testimonials-rail--variant="light"] .zoku-testimonial-card {
-  background-image:
-    linear-gradient(176deg, rgba(255,255,255,0.66) 6%, rgba(255,255,255,0.03) 99%),
-    linear-gradient(90deg, #ebebeb, #ebebeb);
-  border-color: rgba(22, 22, 22, 0.18);
-  color: #575757;
-}
-[data-wf--testimonials-rail--variant="light"] .zoku-testimonial-card_logo {
-  background: #161616;
-  border-color: #575757;
-}
-[data-wf--testimonials-rail--variant="light"] .zoku-testimonial-card_quote,
-[data-wf--testimonials-rail--variant="light"] .zoku-testimonial-card_role {
-  color: #575757;
-}
-[data-wf--testimonials-rail--variant="light"] .zoku-testimonial-card_name {
-  color: #7c00e9;
-}
+  [data-wf--testimonials-rail--variant='light'] .zoku-testimonial-card {
+    background-image: linear-gradient(176deg, rgba(255, 255, 255, 0.66) 6%, rgba(255, 255, 255, 0.03) 99%), linear-gradient(90deg, #ebebeb, #ebebeb);
+    border-color: rgba(22, 22, 22, 0.18);
+    color: #575757;
+  }
+  [data-wf--testimonials-rail--variant='light'] .zoku-testimonial-card_logo {
+    background: #161616;
+    border-color: #575757;
+  }
+  [data-wf--testimonials-rail--variant='light'] .zoku-testimonial-card_quote,
+  [data-wf--testimonials-rail--variant='light'] .zoku-testimonial-card_role {
+    color: #575757;
+  }
+  [data-wf--testimonials-rail--variant='light'] .zoku-testimonial-card_name {
+    color: #7c00e9;
+  }
 
-/* Rail chrome (also descendant / pseudo — can't be Designer classes) */
-[data-wf--testimonials-rail--variant="light"] .zoku-testimonials-rail_eyebrow { color: #575757; }
-[data-wf--testimonials-rail--variant="light"] .zoku-testimonials-rail_heading { color: #161616; }
-/* The visible edge fade is the _viewport::after pseudo (the _track also has one
+  /* Rail chrome (also descendant / pseudo — can't be Designer classes) */
+  [data-wf--testimonials-rail--variant='light'] .zoku-testimonials-rail_eyebrow {
+    color: #575757;
+  }
+  [data-wf--testimonials-rail--variant='light'] .zoku-testimonials-rail_heading {
+    color: #161616;
+  }
+  /* The visible edge fade is the _viewport::after pseudo (the _track also has one
    underneath). Flip both. !important + background-image (not the `background`
    shorthand): the base dark fade is a head-CSS pseudo rule that outweighs a
    plain override — same pattern as the nav scrim above. */
-[data-wf--testimonials-rail--variant="light"] .zoku-testimonials-rail_viewport::after,
-[data-wf--testimonials-rail--variant="light"] .zoku-testimonials-rail_track::after {
-  background-image: linear-gradient(90deg, rgba(235,235,235,0) 0%, #ebebeb 100%) !important;
-}
+  [data-wf--testimonials-rail--variant='light'] .zoku-testimonials-rail_viewport::after,
+  [data-wf--testimonials-rail--variant='light'] .zoku-testimonials-rail_track::after {
+    background-image: linear-gradient(90deg, rgba(235, 235, 235, 0) 0%, #ebebeb 100%) !important;
+  }
 
   /* List filter (filter.js) — the Portfolio "Product" and Resources "Category"
    listings. filter.js toggles .cc-filtered-out on the collection items whose
    category doesn't match the active [data-filter] button; this JS-state class
    isn't something Webflow's Designer can express, so its collapse lives here. */
-.cc-filtered-out { display: none !important; }
+  .cc-filtered-out {
+    display: none !important;
+  }
 
   .zoku-resources_list .w-dyn-item:last-child .zoku-resources_divider {
     display: none;
   }
 
-.zoku-resources-featured .zoku-article-card-item:first-child .zoku-article-card {
+  .zoku-resources-featured .zoku-article-card-item:first-child .zoku-article-card {
     column-gap: var(--_zoku-spacing---space-xl);
     row-gap: var(--_zoku-spacing---space-xl);
     flex-direction: row;
     align-items: stretch;
-}
+  }
   .zoku-resources-featured .zoku-article-card-item:first-child .zoku-article-card .zoku-article-card_media.cc-featured {
     flex: 0 0 46%;
   }
 
-@media (max-width: 767px) {
+  @media (max-width: 767px) {
     .zoku-resources-featured .zoku-article-card-item:first-child .zoku-article-card {
       flex-direction: column-reverse;
     }
   }
 
-.cc-light .zoku-button.cc-ghost {
+  /* ============================================================
+     Nav MENU chip -- animated MENU<->CLOSE label (2026-07-08).
+     Runtime-state rules keyed on the toggle's aria-expanded flip
+     (nav-menu.js) plus the nav's .cc-menu-open class. Designer can't
+     express these, so they live here. Mirrors the "Runtime state"
+     block in styles.css. */
+  .zoku-nav_menu-char {
+    transition:
+      transform 0.45s cubic-bezier(0.23, 1, 0.32, 1),
+      opacity 0.3s ease;
+  }
+  .zoku-nav_menu-word.cc-close .zoku-nav_menu-char {
+    opacity: 0;
+    transform: translateX(-0.65em);
+  }
+  .zoku-nav_menu[aria-expanded='true'] .zoku-nav_menu-word.cc-menu .zoku-nav_menu-char {
+    opacity: 0;
+    transform: translateX(0.65em);
+  }
+  .zoku-nav_menu[aria-expanded='true'] .zoku-nav_menu-word.cc-close .zoku-nav_menu-char {
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  /* Stagger -- outgoing word leads left-to-right... */
+  .zoku-nav_menu[aria-expanded='true'] .zoku-nav_menu-word.cc-menu .zoku-nav_menu-char.cc-1,
+  .zoku-nav_menu-word.cc-close .zoku-nav_menu-char.cc-1 {
+    transition-delay: 0ms;
+  }
+  .zoku-nav_menu[aria-expanded='true'] .zoku-nav_menu-word.cc-menu .zoku-nav_menu-char.cc-2,
+  .zoku-nav_menu-word.cc-close .zoku-nav_menu-char.cc-2 {
+    transition-delay: 45ms;
+  }
+  .zoku-nav_menu[aria-expanded='true'] .zoku-nav_menu-word.cc-menu .zoku-nav_menu-char.cc-3,
+  .zoku-nav_menu-word.cc-close .zoku-nav_menu-char.cc-3 {
+    transition-delay: 90ms;
+  }
+  .zoku-nav_menu[aria-expanded='true'] .zoku-nav_menu-word.cc-menu .zoku-nav_menu-char.cc-4,
+  .zoku-nav_menu-word.cc-close .zoku-nav_menu-char.cc-4 {
+    transition-delay: 135ms;
+  }
+  .zoku-nav_menu-word.cc-close .zoku-nav_menu-char.cc-5 {
+    transition-delay: 180ms;
+  }
+
+  /* ...and the incoming word trails behind them. */
+  .zoku-nav_menu-word.cc-menu .zoku-nav_menu-char.cc-1,
+  .zoku-nav_menu[aria-expanded='true'] .zoku-nav_menu-word.cc-close .zoku-nav_menu-char.cc-1 {
+    transition-delay: 120ms;
+  }
+  .zoku-nav_menu-word.cc-menu .zoku-nav_menu-char.cc-2,
+  .zoku-nav_menu[aria-expanded='true'] .zoku-nav_menu-word.cc-close .zoku-nav_menu-char.cc-2 {
+    transition-delay: 165ms;
+  }
+  .zoku-nav_menu-word.cc-menu .zoku-nav_menu-char.cc-3,
+  .zoku-nav_menu[aria-expanded='true'] .zoku-nav_menu-word.cc-close .zoku-nav_menu-char.cc-3 {
+    transition-delay: 210ms;
+  }
+  .zoku-nav_menu-word.cc-menu .zoku-nav_menu-char.cc-4,
+  .zoku-nav_menu[aria-expanded='true'] .zoku-nav_menu-word.cc-close .zoku-nav_menu-char.cc-4 {
+    transition-delay: 255ms;
+  }
+  .zoku-nav_menu[aria-expanded='true'] .zoku-nav_menu-word.cc-close .zoku-nav_menu-char.cc-5 {
+    transition-delay: 300ms;
+  }
+
+  /* Drawer open -- the chip is the single open/close control, so the nav rises
+     above the .zoku-menu overlay and stays clickable. Keyed on nav-menu.js's
+     .cc-menu-open class OR the chip's aria-expanded (pure-CSS :has fallback).
+     When open over a light page the chip + logo are forced back to the dark
+     set (the drawer panel is dark). */
+  .zoku-nav:is(.cc-menu-open, :has(.zoku-nav_menu[aria-expanded='true'])) {
+    z-index: 120;
+    transition: z-index 0s linear 0s;
+    pointer-events: none;
+  }
+  .zoku-nav:is(.cc-menu-open, :has(.zoku-nav_menu[aria-expanded='true'])) .zoku-nav_menu {
+    pointer-events: auto;
+    color: var(--_zoku-colour---text-primary);
+    -webkit-text-fill-color: var(--_zoku-colour---text-primary);
+    border-color: var(--_zoku-colour---text-dim);
+    background-color: rgba(22, 22, 22, 0.35);
+  }
+  .zoku-nav:is(.cc-menu-open, :has(.zoku-nav_menu[aria-expanded='true'])) .zoku-nav_logo svg {
+    fill: var(--_zoku-colour---text-primary);
+  }
+  .zoku-nav:is(.cc-menu-open, :has(.zoku-nav_menu[aria-expanded='true'])) .zoku-nav_blur {
+    opacity: 0;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .zoku-nav_menu-char,
+    .zoku-nav_tint {
+      transition: none;
+    }
+  }
+
+  .cc-light .zoku-button.cc-ghost {
     background-color: #ebebeb4d;
   }
 
@@ -520,6 +629,6 @@
 <!-- .min.js: jsDelivr auto-minifies the committed bundle on the fly (same @vX.Y.Z
      pin — the tag is what build.sh stamps, the filename is untouched). Verified live:
      ~7.5KB gzipped vs ~30.8KB for the unminified zoku-core.js. -->
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.5.0/zoku-core.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.5.1/zoku-core.min.js" defer></script>
 <!-- suppress GSAP trigger warnings -->
 <script>window.addEventListener('load',()=>window.gsap&&gsap.config({nullTargetWarn:false}));</script>

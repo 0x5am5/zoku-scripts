@@ -16,10 +16,14 @@
  *   2. Overlapping the tail of (1): the rail mask (.zoku-menu_rail-mask,
  *      wrapping the dim track AND the purple progress segment) is revealed
  *      top→bottom via clip-path — the rail's children no longer animate on
- *      their own — and the menu links fade in in sync with the reveal.
- *      The links (and footer links below) fade WITHOUT moving: they are tap
- *      targets, and a y-rise meant an early tap on iOS landed on a moved
- *      element — the intermittent "needs two taps" bug.
+ *      their own — and the menu links rise + fade in sync with the reveal.
+ *      The links (and footer links below) are pointer-inert WHILE they rise:
+ *      they are tap targets, and a y-rise once meant an early tap on iOS
+ *      landed on a moved/neighbouring element — the intermittent "needs two
+ *      taps" bug (v1.5.0 fixed that by dropping the motion entirely; the
+ *      motion is restored with the tap guard instead — an early tap is a
+ *      no-op rather than a mis-hit, and the guard lifts the moment the
+ *      entrance settles).
  *   3. Once the list has finished, the footer items stagger in the same way.
  *
  * The entrance is timed to play DURING the panel's 0.8s slide-in — the
@@ -235,22 +239,36 @@
                 { clipPath: 'inset(0% 0% 0% 0%)', duration: railDraw, ease: 'power2.out' }, reveal);
         }
         if (listItems.length) {
-            // Opacity-only: the links are tap targets, and rising them 28px
-            // meant an early tap on iOS landed on a moved/neighbouring link
-            // (the intermittent two-tap bug). A static hit target always takes
-            // the first tap; the mask reveal + stagger still carry the motion.
+            // The links rise 28px as they fade. Moving tap targets caused the
+            // intermittent iOS two-tap bug (an early tap landed on a moved /
+            // neighbouring link), so the whole tap surface is pointer-inert
+            // while the entrance plays — see the guard on the timeline below.
             tl.fromTo(listItems,
-                { opacity: 0 },
-                { opacity: 1, duration: itemDur, ease: 'power3.out', stagger: listStagger }, reveal);
+                { opacity: 0, y: 28 },
+                { opacity: 1, y: 0, duration: itemDur, ease: 'power3.out', stagger: listStagger }, reveal);
         }
 
         // 3. Footer items stagger in once the list has finished.
         if (footerItems.length) {
-            // Opacity-only for the same reason as the list — the footer links
-            // are tap targets too (the label just keeps in step with them).
             tl.fromTo(footerItems,
-                { opacity: 0 },
-                { opacity: 1, duration: 0.45, ease: 'power3.out', stagger: 0.1 }, listEnd - footerOverlap);
+                { opacity: 0, y: 28 },
+                { opacity: 1, y: 0, duration: 0.45, ease: 'power3.out', stagger: 0.1 }, listEnd - footerOverlap);
+        }
+
+        // Tap guard: the links/footer links are dead to the pointer while they
+        // are in motion, and come alive the moment the entrance settles. An
+        // early tap is a harmless no-op instead of landing on a link that has
+        // moved from under it (the old iOS two-tap bug). The inline
+        // pointer-events is lifted on completion here, and clearIntro's
+        // clearProps covers every interrupted path (mid-entrance close,
+        // instant close, reopen) — so a reversed or killed timeline can never
+        // leave the menu inert.
+        const tapTargets = [...listItems, ...footerItems].filter(Boolean);
+        if (tapTargets.length) {
+            gsap.set(tapTargets, { pointerEvents: 'none' });
+            tl.eventCallback('onComplete', () => {
+                gsap.set(tapTargets, { clearProps: 'pointerEvents' });
+            });
         }
 
         return tl;

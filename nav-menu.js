@@ -61,6 +61,18 @@
     const REOPEN_LOCK_MS = 600; // 0.5s slide-out + margin
     let reopenLockUntil = 0;
 
+    // Pending removal of the nav's .cc-menu-open class on an animated close.
+    // The class carries the open-state colour overrides (logo forced to the
+    // light fill, chip to the dark set) — dropping it the instant close() runs
+    // flipped the logo to its resting colour while the dark scrim was still
+    // fading behind it, so on a light page the logo went dark-on-dark and
+    // visibly vanished until the scrim cleared. The class is instead held for
+    // the drawer's 0.5s exit so the colours revert exactly when the drawer is
+    // gone. (aria-expanded still flips immediately — the CLOSE→MENU label tick
+    // and the :has() colour fallback key on it — so the held class is what
+    // keeps the combined :is(.cc-menu-open, :has(…)) selector matching.)
+    let menuOpenClassTimer = null;
+
     // Elements whose CSS transitions must be bypassed for an instant close —
     // the drawer flow plus the chip's MENU/CLOSE letters (which would
     // otherwise visibly tick back on a bfcache-restore force-close).
@@ -254,6 +266,9 @@
         toggle.setAttribute('aria-label', 'Close menu');
         // Lift the nav above the drawer so the chip stays clickable as CLOSE
         // (CSS: z-index raise + pointer-events collapse to the chip + blur fade).
+        // Cancel any pending post-close removal first — reopening inside the
+        // previous close's 0.5s hold must not have the class yanked mid-open.
+        if (menuOpenClassTimer !== null) { clearTimeout(menuOpenClassTimer); menuOpenClassTimer = null; }
         if (nav) nav.classList.add('cc-menu-open');
         if (panel) panel.setAttribute('aria-hidden', 'false');
         document.body.style.overflow = 'hidden';
@@ -290,7 +305,21 @@
         menu.removeAttribute('open');
         toggle.setAttribute('aria-expanded', 'false');
         toggle.setAttribute('aria-label', 'Open menu');
-        if (nav) nav.classList.remove('cc-menu-open');
+        // Hold .cc-menu-open through the animated exit (see the note at the
+        // top) so the logo/chip colours revert only once the drawer is gone.
+        // Instant / reduced-motion closes drop it now — nothing is animating.
+        if (nav) {
+            if (menuOpenClassTimer !== null) clearTimeout(menuOpenClassTimer);
+            if (instant || prefersReduced) {
+                menuOpenClassTimer = null;
+                nav.classList.remove('cc-menu-open');
+            } else {
+                menuOpenClassTimer = setTimeout(() => {
+                    menuOpenClassTimer = null;
+                    nav.classList.remove('cc-menu-open');
+                }, 500); // matches the panel/scrim 0.5s exit
+            }
+        }
         if (panel) panel.setAttribute('aria-hidden', 'true');
         document.body.style.overflow = '';
 

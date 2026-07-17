@@ -86,7 +86,7 @@
      * The pinned tag below is stamped from the repo-root VERSION file by
      * build.sh (its sed rewrites only the @vX.Y.Z tag, never the filename) — do
      * NOT edit it by hand; bump VERSION and run ./build.sh. */
-    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.5.2/zoku-halftone.min.js';
+    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.5.3/zoku-halftone.min.js';
     let halftoneLoaded = false;
     let halftoneLoading = false;
     const ensureHalftone = (scope) => {

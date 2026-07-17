@@ -121,6 +121,22 @@ treated as a sprite sheet. Force a mode with `data-halftone-type="image"` /
 All attributes go on the **wrapper** element (the one carrying `data-halftone`), not
 the `<img>`. Marker attributes take no value — their presence enables the feature.
 
+**Responsive overrides** — every attribute below (except the `data-halftone` marker
+itself) accepts per-breakpoint variants matching the Webflow breakpoints, by suffixing
+`-tablet` (≤991px), `-mobile` (≤767px) or `-mobile-portrait` (≤479px) — e.g.
+`data-halftone-cell-mobile="6"`, `data-halftone-hover-tablet="false"`. Resolution
+cascades down like the Designer: the most specific active tier carrying a valid value
+wins, unset tiers inherit the next-wider tier's value, falling back to the un-suffixed
+base, then the built-in default. Marker attributes become boolean at a tier — any
+value except `"false"` switches the feature on, `"false"` switches it off — so a
+suffix-only marker (e.g. `data-halftone-scrub-mobile`) enables a feature on just that
+tier and below, and a `"false"` suffix retires a base marker under a given width.
+Values re-resolve **live** when the viewport crosses a breakpoint: a tier that retires
+`scrub` hands the sprite back to its fps clock, one that retires `hover` fades the
+glow out, and a grid change re-derives the sprite from the already-loaded source (no
+network). The one exception is `data-halftone-eager`, which is resolved once at page
+scan — activation is one-shot, so it cannot toggle on resize.
+
 #### Core
 
 | Attribute | Type | Default | Description |
@@ -191,6 +207,12 @@ Both accept per-breakpoint overrides matching the Webflow breakpoints, by suffix
 `-tablet` (≤991px), `-mobile` (≤767px) or `-mobile-portrait` (≤479px) — e.g.
 `data-scrub-enter-mobile="0.7"`. Unset breakpoints inherit the next-wider tier's value,
 falling back to the un-suffixed base, and values re-resolve live on resize.
+
+The `data-halftone-scrub` marker itself is responsive with the same suffixes:
+`data-halftone-scrub-mobile="false"` retires scrubbing on phones (the sprite is handed
+back to its fps clock), while a suffix-only marker like `data-halftone-scrub-tablet`
+enables scrubbing on tablet and below only. `scroll-scrub.js` skips inactive tiers so
+they are never claimed away from auto-play, and re-resolves the active set on resize.
 
 ### Public API
 

@@ -89,7 +89,7 @@
      * The pinned tag below is stamped from the repo-root VERSION file by
      * build.sh (its sed rewrites only the @vX.Y.Z tag, never the filename) — do
      * NOT edit it by hand; bump VERSION and run ./build.sh. */
-    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.4.3/zoku-halftone.min.js';
+    const HALFTONE_URL = 'https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.5.0/zoku-halftone.min.js';
     let halftoneLoaded = false;
     let halftoneLoading = false;
     const ensureHalftone = (scope) => {
@@ -660,8 +660,16 @@
  *   2. Overlapping the tail of (1): the rail mask (.zoku-menu_rail-mask,
  *      wrapping the dim track AND the purple progress segment) is revealed
  *      top→bottom via clip-path — the rail's children no longer animate on
- *      their own — and the menu links rise + fade in sync with the reveal.
+ *      their own — and the menu links fade in in sync with the reveal.
+ *      The links (and footer links below) fade WITHOUT moving: they are tap
+ *      targets, and a y-rise meant an early tap on iOS landed on a moved
+ *      element — the intermittent "needs two taps" bug.
  *   3. Once the list has finished, the footer items stagger in the same way.
+ *
+ * The entrance is timed to play DURING the panel's 0.8s slide-in — the
+ * contents are already mid-motion when the slide uncovers them — and any
+ * animated close (chip, scrim, Escape, or a followed link) REVERSES the same
+ * timeline, sped up to land inside the panel's 0.5s slide-out.
  *
  * The rail spans the links only — the eyebrow sits above it. The purple
  * progress segment is shown ONLY when a menu link is the current page: it is
@@ -707,6 +715,15 @@
     const footerItems = menu.querySelectorAll('.zoku-menu_footer-label, .zoku-menu_footer-link');
 
     let intro = null;
+
+    // Everything the intro timeline animates. Cleared back to the resting
+    // (visible) state once an entrance/exit has fully finished, so the next
+    // open replays from scratch.
+    const introEls = () => [eyebrow, railMask, ...listItems, ...footerItems].filter(Boolean);
+    const clearIntro = () => {
+        if (intro) { intro.kill(); intro = null; }
+        if (gsap) gsap.set(introEls(), { clearProps: 'all' });
+    };
 
     /**
      * Place the purple progress segment beside the current page's link.
@@ -806,17 +823,18 @@
         // laid out — it rests there statically; the mask reveal uncovers it.
         positionProgress();
 
-        // Everything kicks off right as the panel starts sliding in (the slide
-        // is ~0.8s) — the eyebrow leads by a hair, then the rail/list follow,
-        // overlapping it. Keep these small so the motion plays DURING the slide,
-        // not after it settles.
-        const t0 = 0;             // eyebrow leads, as the panel slides out
-        const eyebrowDur = 0.35;  // "// contents" rises + fades in first
-        const reveal = 0.37;      // rail mask + list begin — unchanged from when
-                                  // the rail track started its draw (0.15 + 0.4 − 0.18)
-        const railDraw = 0.4;     // mask reveals top → bottom (fast — fits inside the panel slide-in)
-        const itemDur = 0.5;
-        const listStagger = 0.08; // halved with railDraw so the list stays in sync with the rail
+        // The panel slide is 0.8s quint-out — it LOOKS ~90% open by ~0.3s, and
+        // the left-aligned contents only clear the panel edge around then. So
+        // everything starts at (or a hair after) t=0 and is compressed enough
+        // that the contents are already mid-motion the moment the slide
+        // uncovers them, and the list settles with the panel (~0.8s) rather
+        // than animating after the drawer has visibly opened.
+        const t0 = 0;              // eyebrow leads, with the first frame of the slide
+        const eyebrowDur = 0.35;   // "// contents" rises + fades in first
+        const reveal = 0.1;        // rail mask + list begin almost immediately
+        const railDraw = 0.4;      // mask reveals top → bottom
+        const itemDur = 0.45;
+        const listStagger = 0.06;  // tight — the whole list lands as the panel settles
         const footerOverlap = 0.3; // footer begins while the list tail is still settling
         const listEnd = reveal + listStagger * Math.max(listItems.length - 1, 0) + itemDur;
 
@@ -837,16 +855,22 @@
                 { clipPath: 'inset(0% 0% 0% 0%)', duration: railDraw, ease: 'power2.out' }, reveal);
         }
         if (listItems.length) {
+            // Opacity-only: the links are tap targets, and rising them 28px
+            // meant an early tap on iOS landed on a moved/neighbouring link
+            // (the intermittent two-tap bug). A static hit target always takes
+            // the first tap; the mask reveal + stagger still carry the motion.
             tl.fromTo(listItems,
-                { opacity: 0, y: 28 },
-                { opacity: 1, y: 0, duration: itemDur, ease: 'power3.out', stagger: listStagger }, reveal);
+                { opacity: 0 },
+                { opacity: 1, duration: itemDur, ease: 'power3.out', stagger: listStagger }, reveal);
         }
 
         // 3. Footer items stagger in once the list has finished.
         if (footerItems.length) {
+            // Opacity-only for the same reason as the list — the footer links
+            // are tap targets too (the label just keeps in step with them).
             tl.fromTo(footerItems,
-                { opacity: 0, y: 28 },
-                { opacity: 1, y: 0, duration: 0.45, ease: 'power3.out', stagger: 0.1 }, listEnd - footerOverlap);
+                { opacity: 0 },
+                { opacity: 1, duration: 0.45, ease: 'power3.out', stagger: 0.1 }, listEnd - footerOverlap);
         }
 
         return tl;
@@ -899,15 +923,24 @@
         if (panel) panel.setAttribute('aria-hidden', 'true');
         document.body.style.overflow = '';
 
-        // Reset the entrance so the next open replays from the start. Clearing
-        // the inline props GSAP wrote restores the resting (visible) state once
-        // the panel has slid away. (The progress segment is deliberately NOT
-        // cleared — its inline top/height/display come from positionProgress,
-        // not GSAP, and are recomputed on every open.)
+        // Wind the entrance back so the close mirrors the open. An animated
+        // close REVERSES the intro timeline, sped up so it lands inside the
+        // panel's 0.5s slide-out (the drawer stays visible exactly that long);
+        // the inline props are cleared once the reverse completes so the next
+        // open replays from a clean resting state. An instant close skips the
+        // motion entirely. (The progress segment is deliberately NOT cleared —
+        // its inline top/height/display come from positionProgress, not GSAP,
+        // and are recomputed on every open.)
         if (intro) {
-            intro.kill();
-            intro = null;
-            if (gsap) gsap.set([eyebrow, railMask, ...listItems, ...footerItems].filter(Boolean), { clearProps: 'all' });
+            if (instant) {
+                clearIntro();
+            } else {
+                const tl = intro;
+                tl.eventCallback('onReverseComplete', () => {
+                    if (intro === tl) clearIntro();
+                });
+                tl.timeScale(Math.max(tl.time() / 0.45, 1)).reverse();
+            }
         }
 
         if (instant) {
@@ -1598,10 +1631,15 @@
             gsap.set([cardOne, cardTwo], hidden);
 
             // Phase 1 — card one deals in on approach, landing exactly at the pin.
-            const intro = gsap.to(cardOne, {
-                yPercent: 0,
-                opacity: 1,
-                ease: 'power3.out',
+            //
+            // Opacity is NOT ramped across the glide: the cards' frosted glass
+            // (backdrop-filter in the Designer styles) composites in proportion to
+            // element opacity, so a fade the length of the travel reads as the
+            // BLUR animating from thin to full. Instead a short head tween snaps
+            // the card solid inside the first 10% of the approach — while it is
+            // still parked ~130% below the stage, effectively off-screen — and
+            // the whole visible glide runs at full frost.
+            const intro = gsap.timeline({
                 scrollTrigger: {
                     trigger: pinTarget,
                     start: 'top 75%',
@@ -1610,6 +1648,8 @@
                     invalidateOnRefresh: true,
                 },
             });
+            intro.to(cardOne, { opacity: 1, duration: 0.1, ease: 'none' }, 0);
+            intro.to(cardOne, { yPercent: 0, duration: 1, ease: 'power3.out' }, 0);
 
             const tl = gsap.timeline({
                 defaults: { ease: 'power3.out' },
@@ -1634,6 +1674,12 @@
             // fromTo with immediateRender:false so card one's recorded start is its
             // landed state, not the hidden set() above.
             //
+            // Frost stays constant here too (see the phase-1 note): card two's
+            // opacity snaps solid in a 0.05 head — it only starts overlapping card
+            // one from tl time ~0.21, by which point it is already opaque — and
+            // card one's push-back dims via filter:brightness rather than opacity,
+            // which would thin its backdrop blur as card two crosses it.
+            //
             // The 0.15 beat is also load-bearing: ScrollTrigger renders a scrubbed
             // timeline at progress 0 when the trigger is created (and on refresh),
             // and immediateRender:false does not suppress THAT render. A fromTo
@@ -1641,10 +1687,11 @@
             // landed, opaque) at first load, and the intro tween above would then
             // lazily record them as its start — no-oping the whole deal-in. Any
             // position > 0 keeps the creation render from touching the cards.
-            tl.to(cardTwo, { yPercent: 0, opacity: 1, duration: 0.7 }, 0.15);
+            tl.to(cardTwo, { opacity: 1, duration: 0.05, ease: 'none' }, 0.15);
+            tl.to(cardTwo, { yPercent: 0, duration: 0.7 }, 0.15);
             tl.fromTo(cardOne,
-                { yPercent: 0, scale: 1, opacity: 1 },
-                { yPercent: -8, scale: 0.94, opacity: 0.5, duration: 0.7, immediateRender: false }, 0.15);
+                { yPercent: 0, scale: 1, filter: 'brightness(1)' },
+                { yPercent: -8, scale: 0.94, filter: 'brightness(0.55)', duration: 0.7, immediateRender: false }, 0.15);
 
             return () => {
                 if (intro.scrollTrigger) intro.scrollTrigger.kill();

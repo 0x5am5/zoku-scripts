@@ -13,6 +13,14 @@
  * These cascade down (an unset breakpoint inherits the next-wider value, then the base)
  * and are re-resolved on resize so crossing a breakpoint swaps the margins live.
  *
+ * The scrub marker ITSELF is responsive with the same suffixes (mirroring
+ * halftone-shader's responsive attributes): data-halftone-scrub-mobile="false"
+ * retires scrubbing on phones (the shader releases the scroll claim so the fps
+ * clock resumes), and a suffix-only marker like data-halftone-scrub-tablet
+ * enables it on just that tier and below. Inactive items are tracked but not
+ * driven — calling setProgress on them would claim the sprite away from its
+ * auto-play clock — and the active set is re-resolved on resize.
+ *
  * Geometry is cached, not read live per frame. Each item's absolute document offset
  * (docTop) and height are measured once and progress is derived from window.scrollY
  * against that cache — so content above the track changing height (an accordion
@@ -56,6 +64,11 @@
     const viewportWidth = () =>
         window.innerWidth || document.documentElement.clientWidth || 0;
 
+    // Candidates carry the scrub marker at ANY tier; whether each is ACTIVE at the
+    // current width is resolved separately (see scrubActive), so a marker can be
+    // enabled or retired per breakpoint.
+    const SCRUB_SELECTOR = TIERS.map((t) => '[data-halftone-scrub' + t.suffix + ']').join(',');
+
     // Resolve one margin attribute for the current viewport width. Walks the tiers
     // narrowest-first, returning the first active tier that carries a finite value;
     // otherwise the caller's fallback.
@@ -69,11 +82,25 @@
         return fallback;
     }
 
-    // (Re)resolve every item's enter/leave against the current viewport width, so a
-    // resize across a breakpoint swaps in the tier-specific margins.
+    // Resolve the scrub marker itself for the current width — same cascade, boolean
+    // semantics matching halftone-shader's flagAttr: the first active tier carrying
+    // the attribute wins, "false" = off, anything else = on.
+    function scrubActive(el, width) {
+        for (let i = 0; i < TIERS.length; i++) {
+            const tier = TIERS[i];
+            if (width > tier.max) continue;         // tier not active at this width
+            const v = el.getAttribute('data-halftone-scrub' + tier.suffix);
+            if (v !== null) return v !== 'false';
+        }
+        return false;
+    }
+
+    // (Re)resolve every item's active state and enter/leave margins against the
+    // current viewport width, so a resize across a breakpoint swaps them live.
     function resolveMargins() {
         const width = viewportWidth();
         items.forEach((item) => {
+            item.active = scrubActive(item.el, width);
             item.enter = marginAttr(item.el, 'data-scrub-enter', ENTER_MARGIN, width);
             item.leave = marginAttr(item.el, 'data-scrub-leave', LEAVE_MARGIN, width);
         });
@@ -109,7 +136,8 @@
         const vh = window.innerHeight || document.documentElement.clientHeight;
         const y = scrollTop();
 
-        items.forEach(({ el, docTop, height, enter, leave }) => {
+        items.forEach(({ el, docTop, height, enter, leave, active }) => {
+            if (!active) return;                     // scrub retired at this breakpoint tier
             const top = docTop - y;                  // track.top in the viewport, from cache
             const startLine = vh * enter;            // track.top where p = 0
             const endLine = vh * leave - height;     // track.top where p = 1
@@ -141,10 +169,11 @@
     }
 
     function init(scope) {
-        const els = (scope || document).querySelectorAll('[data-halftone-scrub]');
+        const els = (scope || document).querySelectorAll(SCRUB_SELECTOR);
         items = Array.from(els).map((el) => ({
             el,
             track: el.closest('[data-scrub-track]') || el.parentElement || el,
+            active: false,   // resolved per-width in resolveMargins()
             enter: ENTER_MARGIN,
             leave: LEAVE_MARGIN,
             docTop: 0,

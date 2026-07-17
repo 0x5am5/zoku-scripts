@@ -69,6 +69,23 @@
  *   data-halftone-hover-color2  Highlight tint as #rrggbb (default: #e2b0ff — pale lavender)
  *   data-halftone-hover-base    Whole-area tint floor while hovering, 0–1 (default: 0.4)
  *
+ * ── Responsive overrides ────────────────────────────────────────────────────────
+ *   Every data-halftone-* attribute above (except the data-halftone marker itself)
+ *   accepts Webflow-breakpoint variants via the suffixes -tablet (≤991px), -mobile
+ *   (≤767px) and -mobile-portrait (≤479px) — e.g. data-halftone-cell-mobile="6",
+ *   data-halftone-hover-tablet="false". Resolution cascades DOWN like the Designer:
+ *   at a given viewport width the most specific active tier carrying a valid value
+ *   wins, falling back through wider tiers to the base attribute, then the default.
+ *   Marker attributes (luma, scrub, eager, hover) become boolean at a tier: any
+ *   value except "false" switches on, "false" switches off — so a suffix-only
+ *   marker enables a feature on just that tier, and a "false" suffix retires a
+ *   base marker below a width. Attributes are re-resolved LIVE when the viewport
+ *   crosses a breakpoint (a grid change re-derives the sprite from the retained
+ *   source — no network; a tier that retires scrub releases the scroll claim so
+ *   the fps clock resumes; one that retires hover fades the glow out). The one
+ *   exception is data-halftone-eager, which is resolved once at page scan —
+ *   activation is one-shot, so it cannot meaningfully toggle on resize.
+ *
  * ── Public API ──────────────────────────────────────────────────────────────────
  *   window.ZokuHalftone.setProgress(el, p)   Set a scrubbed sprite's progress (0–1).
  *                                            The first call CLAIMS the instance for
@@ -271,41 +288,90 @@ void main() {
 
     const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 
-    /** Parse a #rrggbb string into [r,g,b] (0–1), falling back when absent/invalid. */
-    function parseHexColor(str, fallback) {
+    // Responsive overrides, mirroring the Webflow breakpoints in styles.css (the
+    // same convention as scroll-scrub.js's data-scrub-* margins). Every attribute
+    // reader walks the tiers narrowest-first, so at a given viewport width the most
+    // specific active tier carrying a valid value wins, cascading down through the
+    // wider tiers to the un-suffixed base attribute. The base tier (suffix '',
+    // max Infinity) is always active, so it is the final fallback before the
+    // built-in default.
+    const TIERS = [
+        { suffix: '-mobile-portrait', max: 479 },  // Webflow mobile portrait
+        { suffix: '-mobile', max: 767 },           // Webflow mobile landscape
+        { suffix: '-tablet', max: 991 },           // Webflow tablet
+        { suffix: '', max: Infinity },             // base / desktop
+    ];
+
+    const viewportWidth = () =>
+        window.innerWidth || document.documentElement.clientWidth || 0;
+
+    /** Index of the narrowest tier active at `width` — the current breakpoint band. */
+    const tierBand = (width) => TIERS.findIndex((t) => width <= t.max);
+
+    /** Parse a #rrggbb string into [r,g,b] (0–1), or null when absent/invalid. */
+    function parseHexColor(str) {
         const m = typeof str === 'string' && str.trim().match(/^#?([0-9a-f]{6})$/i);
-        if (!m) return fallback;
+        if (!m) return null;
         const n = parseInt(m[1], 16);
         return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
     }
 
-    /** Read a numeric data-halftone-<name>, falling back when absent/invalid. */
-    function numAttr(el, name, fallback) {
-        const n = parseFloat(el.getAttribute('data-halftone-' + name));
-        return Number.isFinite(n) ? n : fallback;
+    /**
+     * Resolve data-halftone-<name> for `width`: walk the tiers narrowest-first and
+     * return the first active tier whose value `parse` accepts (null = reject, so
+     * an absent or invalid value at one tier falls through to the next wider one).
+     */
+    function attr(el, name, width, parse, fallback) {
+        for (let i = 0; i < TIERS.length; i++) {
+            const tier = TIERS[i];
+            if (width > tier.max) continue;   // tier not active at this width
+            const v = parse(el.getAttribute('data-halftone-' + name + tier.suffix));
+            if (v !== null) return v;
+        }
+        return fallback;
     }
 
-    /** Read the config for one wrapper element. */
+    const parseNum = (str) => {
+        const n = parseFloat(str);
+        return Number.isFinite(n) ? n : null;
+    };
+
+    /** Marker/boolean semantics: attribute present = on, unless its value is "false". */
+    const parseFlag = (str) => (str === null ? null : str !== 'false');
+
+    const numAttr = (el, name, width, fallback) => attr(el, name, width, parseNum, fallback);
+    const flagAttr = (el, name, width, fallback) => attr(el, name, width, parseFlag, fallback);
+
+    /** True when the hover marker is authored at ANY tier — the pointer listeners are
+     *  bound up-front so a breakpoint crossing can enable/retire the glow live. */
+    function hoverAuthored(el) {
+        return TIERS.some((t) => el.hasAttribute('data-halftone-hover' + t.suffix));
+    }
+
+    /** Read the config for one wrapper element, resolved for the current viewport width. */
     function readConfig(el) {
+        const width = viewportWidth();
+        const enumAttr = (re, name, fallback) =>
+            attr(el, name, width, (s) => (s !== null && re.test(s) ? s : null), fallback);
         return {
-            type: el.getAttribute('data-halftone-type') || 'auto',   // image | sprite | auto
-            fit: /^(cover|contain)$/.test(el.getAttribute('data-halftone-fit')) ? el.getAttribute('data-halftone-fit') : 'fill', // object-fit behaviour
-            density: clamp(numAttr(el, 'density', 260), 5, 1000),
-            cell: Math.max(0, numAttr(el, 'cell', 0)),                // >0 = constant dot pitch
-            radius: clamp(numAttr(el, 'radius', 0.47), 0, 0.5),
-            luma: el.hasAttribute('data-halftone-luma'),
-            depth: Math.max(1, Math.round(numAttr(el, 'depth', 10))),
-            fps: Math.max(1, numAttr(el, 'fps', 10)),
-            loop: el.getAttribute('data-halftone-loop') !== 'false',
-            cols: Math.max(0, Math.round(numAttr(el, 'cols', 0))),
-            rows: Math.max(0, Math.round(numAttr(el, 'rows', 0))),
-            scrub: el.hasAttribute('data-halftone-scrub'),
-            eager: el.hasAttribute('data-halftone-eager'),
-            hover: el.hasAttribute('data-halftone-hover'),
-            hoverRadius: clamp(numAttr(el, 'hover-radius', 0.5), 0.05, 2),
-            hoverColor: parseHexColor(el.getAttribute('data-halftone-hover-color'), HOVER_COLOR_DEFAULT),
-            hoverColor2: parseHexColor(el.getAttribute('data-halftone-hover-color2'), HOVER_COLOR2_DEFAULT),
-            hoverBase: clamp(numAttr(el, 'hover-base', 0.4), 0, 1),
+            type: enumAttr(/^(image|sprite|auto)$/, 'type', 'auto'),
+            fit: enumAttr(/^(fill|cover|contain)$/, 'fit', 'fill'),  // object-fit behaviour
+            density: clamp(numAttr(el, 'density', width, 260), 5, 1000),
+            cell: Math.max(0, numAttr(el, 'cell', width, 0)),         // >0 = constant dot pitch
+            radius: clamp(numAttr(el, 'radius', width, 0.47), 0, 0.5),
+            luma: flagAttr(el, 'luma', width, false),
+            depth: Math.max(1, Math.round(numAttr(el, 'depth', width, 10))),
+            fps: Math.max(1, numAttr(el, 'fps', width, 10)),
+            loop: flagAttr(el, 'loop', width, true),
+            cols: Math.max(0, Math.round(numAttr(el, 'cols', width, 0))),
+            rows: Math.max(0, Math.round(numAttr(el, 'rows', width, 0))),
+            scrub: flagAttr(el, 'scrub', width, false),
+            eager: flagAttr(el, 'eager', width, false),
+            hover: flagAttr(el, 'hover', width, false),
+            hoverRadius: clamp(numAttr(el, 'hover-radius', width, 0.5), 0.05, 2),
+            hoverColor: attr(el, 'hover-color', width, parseHexColor, HOVER_COLOR_DEFAULT),
+            hoverColor2: attr(el, 'hover-color2', width, parseHexColor, HOVER_COLOR2_DEFAULT),
+            hoverBase: clamp(numAttr(el, 'hover-base', width, 0.4), 0, 1),
         };
     }
 
@@ -530,8 +596,11 @@ void main() {
     // ─────────────────────────────────────────────────────────────────────────────
 
     function createInstance(el, renderer) {
-        const config = readConfig(el);
+        // `let`, not `const` — applyConfig() reassigns it after a breakpoint
+        // crossing, and every closure below reads the reassigned value.
+        let config = readConfig(el);
         const img = el.querySelector('img');
+        let sourceImg = null;   // retained CORS-clean source, so a config change can re-grid without a network fetch
 
         // Visible output canvas — covers the wrapper; transparent gaps reveal its background.
         // Starts transparent and fades in the first time a frame paints (see reveal()),
@@ -565,7 +634,9 @@ void main() {
             scrubOwned: false,         // true once setProgress() has taken the frame clock
             // Hover glow — eased position (x/y) chases the pointer target (tx/ty),
             // eased strength (s) chases the presence target (ts). Canvas UV, y-up.
-            hover: config.hover ? { x: 0.5, y: 0.5, tx: 0.5, ty: 0.5, s: 0, ts: 0 } : null,
+            // State exists whenever hover is authored at ANY breakpoint tier (the
+            // listeners bind once); config.hover gates whether it responds.
+            hover: hoverAuthored(el) ? { x: 0.5, y: 0.5, tx: 0.5, ty: 0.5, s: 0, ts: 0 } : null,
             // Lifecycle.
             active: false,
             dirty: true,
@@ -585,6 +656,7 @@ void main() {
                 inst.hover.ty = clamp(1 - (e.clientY - rect.top) / rect.height, 0, 1); // texCoord is y-up
             };
             el.addEventListener('pointerenter', (e) => {
+                if (!config.hover) return;   // glow retired at this breakpoint tier
                 setTarget(e);
                 // Fully faded out → bloom at the cursor rather than sweeping in from
                 // wherever the glow last died.
@@ -596,6 +668,7 @@ void main() {
                 renderLoopKick();
             });
             el.addEventListener('pointermove', (e) => {
+                if (!config.hover) return;
                 setTarget(e);
                 renderLoopKick();
             });
@@ -629,6 +702,7 @@ void main() {
         }
 
         function onImageReady(source) {
+            sourceImg = source;
             const grid = resolveGrid(config, source.naturalWidth, source.naturalHeight);
             if (grid && grid.cols * grid.rows > 1) {
                 inst.sprite = makeSpriteSheet(source, grid.cols, grid.rows);
@@ -649,9 +723,10 @@ void main() {
          * True when the element is authored as a sprite sheet: its frame grid is
          * defined by the ORIGINAL asset, so the browser's responsive-variant pick
          * (currentSrc) must be bypassed — a scaled Webflow srcset variant shrinks
-         * every frame cell and can break the 960×540 auto-detect.
+         * every frame cell and can break the 960×540 auto-detect. A function, not
+         * a constant: the responsive attributes can change the answer per tier.
          */
-        const spriteSource = config.scrub || config.type === 'sprite' || (config.cols > 0 && config.rows > 0);
+        const spriteSource = () => config.scrub || config.type === 'sprite' || (config.cols > 0 && config.rows > 0);
 
         /**
          * Kick off image loading (idempotent per URL — re-runs load a NEW source).
@@ -669,7 +744,7 @@ void main() {
          */
         inst.loadSource = function () {
             if (inst.loading || !img) return;
-            const src = spriteSource ? (img.src || img.currentSrc) : (img.currentSrc || img.src);
+            const src = spriteSource() ? (img.src || img.currentSrc) : (img.currentSrc || img.src);
             if (!src || src === inst.loadedSrc) return;
             inst.loading = true;
             const tex = new Image();
@@ -846,6 +921,31 @@ void main() {
             inst.dirty = true;
         };
 
+        /**
+         * Re-resolve the responsive attributes after a breakpoint crossing. Most
+         * changes are uniform-level and just need a redraw; the exceptions:
+         *   - a grid change (type/cols/rows) re-derives sprite vs still from the
+         *     RETAINED source image — no network fetch;
+         *   - a tier that retires scrub releases the scroll claim so the fps clock
+         *     can resume (scroll-scrub stops driving inactive tiers on its own);
+         *   - a tier that retires hover fades any live glow out.
+         * Runs on inactive instances too — the dirty flag survives until the
+         * IntersectionObserver reactivates them.
+         */
+        inst.applyConfig = function () {
+            const prev = config;
+            config = readConfig(el);
+            inst.config = config;
+            inst.density = config.density;   // cell mode re-derives from width in setSize()
+            if (sourceImg && (prev.type !== config.type || prev.cols !== config.cols || prev.rows !== config.rows)) {
+                onImageReady(sourceImg);
+            }
+            if (prev.scrub && !config.scrub) inst.scrubOwned = false;
+            if (inst.hover && !config.hover) inst.hover.ts = 0;
+            inst.setSize();
+            inst.dirty = true;
+        };
+
         return inst;
     }
 
@@ -987,7 +1087,9 @@ void main() {
         tracked.add(el);
         if (!instances.has(el)) instances.set(el, null); // no GL yet — instantiate + activate lazily
         if (ro) ro.observe(el);
-        if (el.hasAttribute('data-halftone-eager') || !io) {
+        // Eager is resolved responsively but ONCE, at scan time — activation is
+        // one-shot, so it cannot meaningfully toggle when the viewport resizes.
+        if (flagAttr(el, 'eager', viewportWidth(), false) || !io) {
             const inst = instanceFor(el);
             if (inst) activate(inst);
         } else {
@@ -1005,6 +1107,19 @@ void main() {
         const root = scope || document;
         root.querySelectorAll('[data-halftone]').forEach((el) => track(el));
     }
+
+    // Re-resolve every instance's responsive attributes when the viewport crosses a
+    // Webflow breakpoint. Band-gated so ordinary same-tier resizes cost one integer
+    // compare — per-element sizing stays the ResizeObserver's job. Fires for
+    // inactive instances too (applyConfig leaves them dirty for reactivation).
+    let configBand = tierBand(viewportWidth());
+    window.addEventListener('resize', () => {
+        const band = tierBand(viewportWidth());
+        if (band === configBand) return;
+        configBand = band;
+        instances.forEach((inst) => { if (inst) inst.applyConfig(); });
+        renderLoopKick();
+    });
 
     // Re-evaluate when the reduced-motion preference changes at runtime: a redraw lets
     // each instance settle on its frame-0 (reduced) or resume animating.
@@ -1103,6 +1218,14 @@ void main() {
  * These cascade down (an unset breakpoint inherits the next-wider value, then the base)
  * and are re-resolved on resize so crossing a breakpoint swaps the margins live.
  *
+ * The scrub marker ITSELF is responsive with the same suffixes (mirroring
+ * halftone-shader's responsive attributes): data-halftone-scrub-mobile="false"
+ * retires scrubbing on phones (the shader releases the scroll claim so the fps
+ * clock resumes), and a suffix-only marker like data-halftone-scrub-tablet
+ * enables it on just that tier and below. Inactive items are tracked but not
+ * driven — calling setProgress on them would claim the sprite away from its
+ * auto-play clock — and the active set is re-resolved on resize.
+ *
  * Geometry is cached, not read live per frame. Each item's absolute document offset
  * (docTop) and height are measured once and progress is derived from window.scrollY
  * against that cache — so content above the track changing height (an accordion
@@ -1146,6 +1269,11 @@ void main() {
     const viewportWidth = () =>
         window.innerWidth || document.documentElement.clientWidth || 0;
 
+    // Candidates carry the scrub marker at ANY tier; whether each is ACTIVE at the
+    // current width is resolved separately (see scrubActive), so a marker can be
+    // enabled or retired per breakpoint.
+    const SCRUB_SELECTOR = TIERS.map((t) => '[data-halftone-scrub' + t.suffix + ']').join(',');
+
     // Resolve one margin attribute for the current viewport width. Walks the tiers
     // narrowest-first, returning the first active tier that carries a finite value;
     // otherwise the caller's fallback.
@@ -1159,11 +1287,25 @@ void main() {
         return fallback;
     }
 
-    // (Re)resolve every item's enter/leave against the current viewport width, so a
-    // resize across a breakpoint swaps in the tier-specific margins.
+    // Resolve the scrub marker itself for the current width — same cascade, boolean
+    // semantics matching halftone-shader's flagAttr: the first active tier carrying
+    // the attribute wins, "false" = off, anything else = on.
+    function scrubActive(el, width) {
+        for (let i = 0; i < TIERS.length; i++) {
+            const tier = TIERS[i];
+            if (width > tier.max) continue;         // tier not active at this width
+            const v = el.getAttribute('data-halftone-scrub' + tier.suffix);
+            if (v !== null) return v !== 'false';
+        }
+        return false;
+    }
+
+    // (Re)resolve every item's active state and enter/leave margins against the
+    // current viewport width, so a resize across a breakpoint swaps them live.
     function resolveMargins() {
         const width = viewportWidth();
         items.forEach((item) => {
+            item.active = scrubActive(item.el, width);
             item.enter = marginAttr(item.el, 'data-scrub-enter', ENTER_MARGIN, width);
             item.leave = marginAttr(item.el, 'data-scrub-leave', LEAVE_MARGIN, width);
         });
@@ -1199,7 +1341,8 @@ void main() {
         const vh = window.innerHeight || document.documentElement.clientHeight;
         const y = scrollTop();
 
-        items.forEach(({ el, docTop, height, enter, leave }) => {
+        items.forEach(({ el, docTop, height, enter, leave, active }) => {
+            if (!active) return;                     // scrub retired at this breakpoint tier
             const top = docTop - y;                  // track.top in the viewport, from cache
             const startLine = vh * enter;            // track.top where p = 0
             const endLine = vh * leave - height;     // track.top where p = 1
@@ -1231,10 +1374,11 @@ void main() {
     }
 
     function init(scope) {
-        const els = (scope || document).querySelectorAll('[data-halftone-scrub]');
+        const els = (scope || document).querySelectorAll(SCRUB_SELECTOR);
         items = Array.from(els).map((el) => ({
             el,
             track: el.closest('[data-scrub-track]') || el.parentElement || el,
+            active: false,   // resolved per-width in resolveMargins()
             enter: ENTER_MARGIN,
             leave: LEAVE_MARGIN,
             docTop: 0,

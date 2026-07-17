@@ -441,6 +441,12 @@
     flex: 0 0 46%;
   }
 
+@media (max-width: 767px) {
+    .zoku-resources-featured .zoku-article-card-item:first-child .zoku-article-card {
+      flex-direction: column-reverse;
+    }
+  }
+
 .cc-light .zoku-button.cc-ghost {
     background-color: #ebebeb4d;
   }
@@ -514,6 +520,6 @@
 <!-- .min.js: jsDelivr auto-minifies the committed bundle on the fly (same @vX.Y.Z
      pin — the tag is what build.sh stamps, the filename is untouched). Verified live:
      ~7.5KB gzipped vs ~30.8KB for the unminified zoku-core.js. -->
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.4.3/zoku-core.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.5.0/zoku-core.min.js" defer></script>
 <!-- suppress GSAP trigger warnings -->
 <script>window.addEventListener('load',()=>window.gsap&&gsap.config({nullTargetWarn:false}));</script>

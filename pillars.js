@@ -96,10 +96,15 @@
             gsap.set([cardOne, cardTwo], hidden);
 
             // Phase 1 — card one deals in on approach, landing exactly at the pin.
-            const intro = gsap.to(cardOne, {
-                yPercent: 0,
-                opacity: 1,
-                ease: 'power3.out',
+            //
+            // Opacity is NOT ramped across the glide: the cards' frosted glass
+            // (backdrop-filter in the Designer styles) composites in proportion to
+            // element opacity, so a fade the length of the travel reads as the
+            // BLUR animating from thin to full. Instead a short head tween snaps
+            // the card solid inside the first 10% of the approach — while it is
+            // still parked ~130% below the stage, effectively off-screen — and
+            // the whole visible glide runs at full frost.
+            const intro = gsap.timeline({
                 scrollTrigger: {
                     trigger: pinTarget,
                     start: 'top 75%',
@@ -108,6 +113,8 @@
                     invalidateOnRefresh: true,
                 },
             });
+            intro.to(cardOne, { opacity: 1, duration: 0.1, ease: 'none' }, 0);
+            intro.to(cardOne, { yPercent: 0, duration: 1, ease: 'power3.out' }, 0);
 
             const tl = gsap.timeline({
                 defaults: { ease: 'power3.out' },
@@ -132,6 +139,12 @@
             // fromTo with immediateRender:false so card one's recorded start is its
             // landed state, not the hidden set() above.
             //
+            // Frost stays constant here too (see the phase-1 note): card two's
+            // opacity snaps solid in a 0.05 head — it only starts overlapping card
+            // one from tl time ~0.21, by which point it is already opaque — and
+            // card one's push-back dims via filter:brightness rather than opacity,
+            // which would thin its backdrop blur as card two crosses it.
+            //
             // The 0.15 beat is also load-bearing: ScrollTrigger renders a scrubbed
             // timeline at progress 0 when the trigger is created (and on refresh),
             // and immediateRender:false does not suppress THAT render. A fromTo
@@ -139,10 +152,11 @@
             // landed, opaque) at first load, and the intro tween above would then
             // lazily record them as its start — no-oping the whole deal-in. Any
             // position > 0 keeps the creation render from touching the cards.
-            tl.to(cardTwo, { yPercent: 0, opacity: 1, duration: 0.7 }, 0.15);
+            tl.to(cardTwo, { opacity: 1, duration: 0.05, ease: 'none' }, 0.15);
+            tl.to(cardTwo, { yPercent: 0, duration: 0.7 }, 0.15);
             tl.fromTo(cardOne,
-                { yPercent: 0, scale: 1, opacity: 1 },
-                { yPercent: -8, scale: 0.94, opacity: 0.5, duration: 0.7, immediateRender: false }, 0.15);
+                { yPercent: 0, scale: 1, filter: 'brightness(1)' },
+                { yPercent: -8, scale: 0.94, filter: 'brightness(0.55)', duration: 0.7, immediateRender: false }, 0.15);
 
             return () => {
                 if (intro.scrollTrigger) intro.scrollTrigger.kill();

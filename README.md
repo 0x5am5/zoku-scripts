@@ -45,17 +45,17 @@ core bundle fetches `zoku-halftone.min.js` on demand, so the WebGL shader never 
 to pages that don't use it.
 
 ```html
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.4.1/zoku-core.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/gh/zoku-dev/zoku-scripts@v1.4.1/zoku-core.min.js" defer></script>
 ```
 
 `@main` always tracks the latest push (no retag needed, but not immutable):
 
 ```html
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@main/zoku-core.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/gh/zoku-dev/zoku-scripts@main/zoku-core.min.js" defer></script>
 ```
 
 > jsDelivr caches tagged URLs immutably. To force-refresh a `@main` URL after a push,
-> hit `https://purge.jsdelivr.net/gh/0x5am5/zoku-scripts@main/zoku-core.min.js` once.
+> hit `https://purge.jsdelivr.net/gh/zoku-dev/zoku-scripts@main/zoku-core.min.js` once.
 
 ### Webflow
 

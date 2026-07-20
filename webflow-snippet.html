@@ -623,6 +623,45 @@
     background: var(--_zoku-colour---brand-purple);
     color: var(--_zoku-colour---bg-primary);
   }
+
+  /* iOS status-bar strip + nav shadow overrides (moved here from the footer
+     2026-07-20 so the display gate is render-blocking — no first-paint flash
+     of the strip — and grouped with the other .cc-light nav rules above).
+     Drawer-open snap-hide + ALWAYS-BLACK pin are unchanged from their prior
+     footer home; the !important sits after the inert .cc-light bg-light flip
+     above, so the strip stays black. */
+  .zoku-nav:is(.cc-menu-open, :has(.zoku-nav_menu[aria-expanded='true'])) .zoku-nav_tint {
+    transition: opacity 0s;
+  }
+  /* iOS-Safari-only: the status-bar sampler is meaningless off iOS Safari
+     (desktop/Android have no system status bar to tint), so hide it by default
+     and only render it where -webkit-touch-callout is supported. */
+  .zoku-nav_tint {
+    background-color: var(--_zoku-colour---bg-primary) !important;
+    display: none;
+  }
+  @supports (-webkit-touch-callout: none) {
+    .zoku-nav_tint {
+      display: block;
+    }
+  }
+  /* Light nav "shadow" on light pages, iOS Safari only. The blur stack
+     (.zoku-nav_blur) carries no colour of its own; on a light surface its
+     downward fade should read as a light shadow, not a dark smear. This washes
+     a soft light-to-transparent gradient OVER the blur via a pseudo. Gated to
+     iOS Safari (@supports -webkit-touch-callout). .zoku-nav_blur (and this
+     ::after) is position:absolute, so the iOS status-bar sampler ignores it:
+     the status bar keeps sampling the black fixed .zoku-nav_tint. Alpha/stops
+     are a subtle starting point; tune on device. */
+  @supports (-webkit-touch-callout: none) {
+    .zoku-nav.cc-light .zoku-nav_blur::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: linear-gradient(to bottom, rgba(235, 235, 235, 0.5) 0%, rgba(235, 235, 235, 0) 100%);
+    }
+  }
 </style>
 
 <!-- Site Settings → Custom Code → Footer Code -->
@@ -635,24 +674,6 @@
 <!-- .min.js: jsDelivr auto-minifies the committed bundle on the fly (same @vX.Y.Z
      pin — the tag is what build.sh stamps, the filename is untouched). Verified live:
      ~7.5KB gzipped vs ~30.8KB for the unminified zoku-core.js. -->
-<script src="https://cdn.jsdelivr.net/gh/0x5am5/zoku-scripts@v1.5.7/zoku-core.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/gh/zoku-dev/zoku-scripts@v1.5.8/zoku-core.min.js" defer></script>
 <!-- suppress GSAP trigger warnings -->
 <script>window.addEventListener('load',()=>window.gsap&&gsap.config({nullTargetWarn:false}));</script>
-<!-- .zoku-nav_tint overrides (2026-07-17). The iOS status-bar strip is ACTIVE
-     (a brief opacity:0-always retirement was reverted the same day); these
-     later-in-cascade rules adjust its behaviour without rewriting the head
-     block (whose tint rules they supersede):
-     1. Drawer-open hide is an instant SNAP — the elevated nav stacking
-        context paints the strip above the panel, and the head rule that
-        hides it inherited the tint's base 0.4s opacity fade: a visible bar
-        sliding over the opening drawer. Transitions take the DESTINATION
-        state's timing, so the hide is instant while closing still fades the
-        strip back in via the base transition.
-     2. ALWAYS BLACK — the cc-light background flip didn't track page colour
-        reliably enough (client call), so the strip stays bg-primary
-        everywhere; the head's cc-light background rule is inert under the
-        !important. -->
-<style>
-.zoku-nav:is(.cc-menu-open, :has(.zoku-nav_menu[aria-expanded='true'])) .zoku-nav_tint{transition:opacity 0s;}
-.zoku-nav_tint{background-color:var(--_zoku-colour---bg-primary) !important;}
-</style>
